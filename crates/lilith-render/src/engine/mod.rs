@@ -408,12 +408,10 @@ impl LaneScheduler {
         }
 
         let lane_index = self.lanes.len();
-        if self.lane_y(lane_index) + self.lane_step > self.frame_height
-            && self.placement != CommentPlacement::Bottom
-        {
+        if !self.can_spawn_lane(lane_index, comment) {
             return LaneAssignment {
-                lane: 0,
-                y: self.lane_y(0),
+                lane: lane_index,
+                y: self.overflow_y(comment),
             };
         }
         self.lanes.push(ScheduledLane::new(
@@ -428,6 +426,17 @@ impl LaneScheduler {
         }
     }
 
+    fn can_spawn_lane(&self, lane_index: usize, comment: &PreparedComment) -> bool {
+        let lane_y = self.lane_y(lane_index);
+
+        match self.placement {
+            CommentPlacement::Scroll | CommentPlacement::Top => {
+                lane_y + comment.height <= self.frame_height
+            }
+            CommentPlacement::Bottom => lane_y >= 0.0,
+        }
+    }
+
     fn lane_y(&self, lane_index: usize) -> f32 {
         match self.placement {
             CommentPlacement::Scroll | CommentPlacement::Top => {
@@ -438,6 +447,39 @@ impl LaneScheduler {
             }
         }
     }
+
+    fn overflow_y(&self, comment: &PreparedComment) -> f32 {
+        if self.frame_height <= comment.height {
+            return match self.placement {
+                CommentPlacement::Scroll => (comment.height - self.frame_height) / -2.0,
+                CommentPlacement::Top | CommentPlacement::Bottom => 0.0,
+            };
+        }
+
+        let available = (self.frame_height - comment.height).floor().max(0.0) as u64;
+        let current_pos = (deterministic_overflow_seed(comment) % (available + 1)) as f32;
+
+        match self.placement {
+            CommentPlacement::Scroll | CommentPlacement::Top => current_pos,
+            CommentPlacement::Bottom => self.frame_height - current_pos - comment.height,
+        }
+    }
+}
+
+fn deterministic_overflow_seed(comment: &PreparedComment) -> u64 {
+    let mut hash = 1469598103934665603_u64;
+
+    for byte in comment.text.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(1099511628211);
+    }
+
+    hash ^= comment.vpos_ms;
+    hash = hash.wrapping_mul(1099511628211);
+    hash ^= comment.layer as u64;
+    hash = hash.wrapping_mul(1099511628211);
+    hash ^= u64::from(comment.owner);
+    hash
 }
 
 struct ScheduledLane {
@@ -601,6 +643,39 @@ mod tests {
 
         assert_eq!(first, vec!["a"]);
         assert_eq!(second, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn saturated_scroll_lanes_do_not_collapse_to_top_row() {
+        let mut engine = RenderEngine::new(RenderConfig::default()).unwrap();
+        let comments = (0..40)
+            .map(|index| RenderComment {
+                text: format!("comment-{index}"),
+                vpos_ms: 0,
+                mail: vec!["big".to_string()],
+                owner: false,
+                layer: 1,
+            })
+            .collect::<Vec<_>>();
+
+        let positioned = engine.layout_comments(
+            &comments,
+            RenderRequest {
+                timestamp: TimestampMs(100),
+                frame_size: RenderConfig::default().frame_size,
+            },
+        );
+
+        let y_values = positioned
+            .iter()
+            .map(|item| item.y.round() as i32)
+            .collect::<Vec<_>>();
+        assert!(y_values.iter().any(|y| *y > 0));
+        let unique_y = y_values
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(unique_y.len() > 5);
     }
 
     #[test]
