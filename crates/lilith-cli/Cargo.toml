@@ -3,5 +3,11 @@ name = "lilith-cli"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "lilith"
+path = "src/main.rs"
+
 [dependencies]
+anyhow.workspace = true
+clap.workspace = true
 lilith-core.workspace = true

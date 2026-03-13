@@ -1,2 +1,5 @@
-/target
-vendor/niconicomments
+/target/
+/output/
+.DS_Store
+vendor/niconicomments/.git/
+vendor/niconicomments/node_modules/
