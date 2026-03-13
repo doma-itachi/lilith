@@ -54,6 +54,7 @@ pub struct RenderEngine {
 #[derive(Debug, Clone)]
 pub struct PreparedComment {
     pub text: String,
+    pub start_ms: u64,
     pub vpos_ms: u64,
     pub end_ms: u64,
     pub owner: bool,
@@ -215,11 +216,9 @@ impl RenderEngine {
 
         for item in comments {
             let comment = item.comment;
-            let progress = (request.timestamp.0.saturating_sub(comment.vpos_ms) as f32)
-                / comment.lifetime_ms as f32;
             let base_x = match comment.placement {
                 CommentPlacement::Scroll => {
-                    frame_width - progress * (frame_width + comment.width) - side_padding
+                    self.scroll_position_x(comment, request.timestamp, frame_width)
                 }
                 CommentPlacement::Top | CommentPlacement::Bottom => {
                     ((frame_width - comment.width) / 2.0).max(side_padding)
@@ -251,11 +250,18 @@ impl RenderEngine {
             [style.color.r, style.color.g, style.color.b, style.color.a],
             true,
         )?;
+        let (start_ms, end_ms) = self.comment_active_window(
+            style.placement,
+            comment.vpos_ms,
+            style.lifetime_ms,
+            metrics.width,
+        );
 
         Ok(PreparedComment {
             text: comment.text.clone(),
+            start_ms,
             vpos_ms: comment.vpos_ms,
-            end_ms: comment.vpos_ms.saturating_add(style.lifetime_ms),
+            end_ms,
             owner: comment.owner,
             layer: comment.layer,
             placement: style.placement,
@@ -300,6 +306,53 @@ impl RenderEngine {
     fn max_lane_step(&self) -> f32 {
         self.config.medium_font_size * 1.45 * 1.2 + 8.0
     }
+
+    fn comment_active_window(
+        &self,
+        placement: CommentPlacement,
+        vpos_ms: u64,
+        lifetime_ms: u64,
+        width: f32,
+    ) -> (u64, u64) {
+        match placement {
+            CommentPlacement::Top | CommentPlacement::Bottom => {
+                (vpos_ms, vpos_ms.saturating_add(lifetime_ms))
+            }
+            CommentPlacement::Scroll => {
+                let width_scale = self.config.frame_size.width as f32 / 1920.0;
+                let long_vpos = (lifetime_ms as f32 / 10.0).max(1.0);
+                let before_vpos = ((-288.0 * width_scale)
+                    / (((1632.0 * width_scale) + width) / (long_vpos + 125.0)))
+                    .round()
+                    - 100.0;
+                let start_ms = shift_ms(vpos_ms, before_vpos as i64 * 10);
+                let end_ms = vpos_ms.saturating_add((long_vpos + 125.0).round() as u64 * 10);
+
+                (start_ms, end_ms)
+            }
+        }
+    }
+
+    fn scroll_position_x(
+        &self,
+        comment: &PreparedComment,
+        timestamp: TimestampMs,
+        frame_width: f32,
+    ) -> f32 {
+        const COMMENT_DRAW_RANGE: f32 = 1530.0;
+        const COMMENT_DRAW_PADDING: f32 = 195.0;
+        const NAKA_COMMENT_SPEED_OFFSET: f32 = 0.95;
+
+        let width_scale = frame_width / 1920.0;
+        let draw_range = COMMENT_DRAW_RANGE * width_scale;
+        let draw_padding = COMMENT_DRAW_PADDING * width_scale;
+        let long_vpos = (comment.lifetime_ms as f32 / 10.0).max(1.0);
+        let current_vpos = timestamp.0 as f32 / 10.0;
+        let comment_vpos = comment.vpos_ms as f32 / 10.0;
+        let speed = (draw_range + comment.width * NAKA_COMMENT_SPEED_OFFSET) / (long_vpos + 100.0);
+
+        draw_padding + draw_range - ((current_vpos - comment_vpos) + 100.0) * speed
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -331,7 +384,7 @@ impl PreparedCommentSet {
 impl PreparedFrameSequence<'_> {
     pub fn advance_to(&mut self, timestamp: TimestampMs) -> Vec<IndexedPreparedComment<'_>> {
         while self.next_index < self.comments.len()
-            && self.comments[self.next_index].vpos_ms <= timestamp.0
+            && self.comments[self.next_index].start_ms <= timestamp.0
         {
             self.active_indices.push(self.next_index);
             self.next_index += 1;
@@ -353,6 +406,14 @@ impl PreparedFrameSequence<'_> {
 
     pub fn comment(&self, index: usize) -> &PreparedComment {
         &self.comments[index]
+    }
+}
+
+fn shift_ms(base_ms: u64, delta_ms: i64) -> u64 {
+    if delta_ms >= 0 {
+        base_ms.saturating_add(delta_ms as u64)
+    } else {
+        base_ms.saturating_sub(delta_ms.unsigned_abs())
     }
 }
 
@@ -530,16 +591,23 @@ impl ScheduledLane {
             return false;
         }
 
-        let side_padding = 24.0_f32;
-        let horizontal_padding = 16.0_f32;
-        let previous_speed = (frame_width + self.last_width) / self.last_lifetime_ms as f32;
-        let current_speed = (frame_width + comment.width) / comment.lifetime_ms as f32;
-        let elapsed = comment.vpos_ms.saturating_sub(self.last_start_ms) as f32;
-        let previous_x = frame_width
-            - side_padding
-            - (elapsed / self.last_lifetime_ms as f32) * (frame_width + self.last_width);
-        let gap =
-            (frame_width - side_padding) - (previous_x + self.last_width + horizontal_padding);
+        const COMMENT_DRAW_RANGE: f32 = 1530.0;
+        const COMMENT_DRAW_PADDING: f32 = 195.0;
+        const NAKA_COMMENT_SPEED_OFFSET: f32 = 0.95;
+        const HORIZONTAL_PADDING: f32 = 5.0;
+
+        let width_scale = frame_width / 1920.0;
+        let draw_range = COMMENT_DRAW_RANGE * width_scale;
+        let draw_padding = COMMENT_DRAW_PADDING * width_scale;
+        let previous_speed = (draw_range + self.last_width * NAKA_COMMENT_SPEED_OFFSET)
+            / (self.last_lifetime_ms as f32 / 10.0 + 100.0);
+        let current_speed = (draw_range + comment.width * NAKA_COMMENT_SPEED_OFFSET)
+            / (comment.lifetime_ms as f32 / 10.0 + 100.0);
+        let current_vpos = comment.vpos_ms as f32 / 10.0;
+        let previous_vpos = self.last_start_ms as f32 / 10.0;
+        let elapsed = current_vpos - previous_vpos;
+        let previous_x = draw_padding + draw_range - (elapsed + 100.0) * previous_speed;
+        let gap = (draw_padding + draw_range) - (previous_x + self.last_width + HORIZONTAL_PADDING);
 
         if gap < 0.0 {
             return false;
@@ -615,14 +683,14 @@ mod tests {
                 RenderComment {
                     text: "a".to_string(),
                     vpos_ms: 0,
-                    mail: Vec::new(),
+                    mail: vec!["ue".to_string()],
                     owner: false,
                     layer: 1,
                 },
                 RenderComment {
                     text: "b".to_string(),
                     vpos_ms: 500,
-                    mail: Vec::new(),
+                    mail: vec!["ue".to_string()],
                     owner: false,
                     layer: 1,
                 },
@@ -643,6 +711,48 @@ mod tests {
 
         assert_eq!(first, vec!["a"]);
         assert_eq!(second, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn scroll_comments_become_active_before_vpos() {
+        let mut engine = RenderEngine::new(RenderConfig::default()).unwrap();
+        let prepared = engine
+            .prepare_comments(&[RenderComment {
+                text: "scroll".to_string(),
+                vpos_ms: 1_000,
+                mail: Vec::new(),
+                owner: false,
+                layer: 1,
+            }])
+            .unwrap();
+        let mut sequence = prepared.sequence();
+
+        let before = sequence
+            .advance_to(TimestampMs(100))
+            .into_iter()
+            .map(|item| item.comment().text.clone())
+            .collect::<Vec<_>>();
+
+        assert_eq!(before, vec!["scroll"]);
+    }
+
+    #[test]
+    fn scroll_comment_active_window_is_derived_from_vendor_formula() {
+        let mut engine = RenderEngine::new(RenderConfig::default()).unwrap();
+        let prepared = engine
+            .prepare_comments(&[RenderComment {
+                text: "scroll".to_string(),
+                vpos_ms: 1_000,
+                mail: Vec::new(),
+                owner: false,
+                layer: 1,
+            }])
+            .unwrap();
+        let sequence = prepared.sequence();
+        let item = sequence.comment(0);
+
+        assert!(item.start_ms < item.vpos_ms);
+        assert!(item.end_ms > item.vpos_ms + item.lifetime_ms);
     }
 
     #[test]
@@ -676,6 +786,28 @@ mod tests {
             .copied()
             .collect::<std::collections::BTreeSet<_>>();
         assert!(unique_y.len() > 5);
+    }
+
+    #[test]
+    fn scroll_position_matches_vendor_default_timing() {
+        let mut engine = RenderEngine::new(RenderConfig::default()).unwrap();
+        let positioned = engine.layout_comments(
+            &[RenderComment {
+                text: "speed-check".to_string(),
+                vpos_ms: 1_000,
+                mail: Vec::new(),
+                owner: false,
+                layer: 1,
+            }],
+            RenderRequest {
+                timestamp: TimestampMs(2_000),
+                frame_size: RenderConfig::default().frame_size,
+            },
+        );
+
+        let item = &positioned[0];
+        assert!(item.x > 200.0);
+        assert!(item.x < 1_100.0);
     }
 
     #[test]

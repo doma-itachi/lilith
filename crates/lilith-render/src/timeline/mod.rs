@@ -76,6 +76,7 @@ pub fn active_comments<'a>(
 pub fn resolve_style(comment: &RenderComment) -> CommentStyle {
     let mut placement = CommentPlacement::Scroll;
     let mut size = CommentSize::Medium;
+    let mut lifetime_ms = 3_000_u64;
     let mut color = CommentColor {
         r: 0xff,
         g: 0xff,
@@ -99,6 +100,11 @@ pub fn resolve_style(comment: &RenderComment) -> CommentStyle {
             "purple" => color = rgb(0xc0, 0x7b, 0xff),
             "black" => color = rgb(0x22, 0x22, 0x22),
             "white" => color = rgb(0xff, 0xff, 0xff),
+            _ if command.starts_with('@') => {
+                if let Some(seconds) = parse_long_seconds(command) {
+                    lifetime_ms = seconds;
+                }
+            }
             _ => {}
         }
     }
@@ -107,7 +113,7 @@ pub fn resolve_style(comment: &RenderComment) -> CommentStyle {
         placement,
         size,
         color,
-        lifetime_ms: 3_000,
+        lifetime_ms,
     }
 }
 
@@ -122,6 +128,15 @@ fn is_active(comment: &RenderComment, timestamp: TimestampMs, style: CommentStyl
 
 const fn rgb(r: u8, g: u8, b: u8) -> CommentColor {
     CommentColor { r, g, b, a: 0xff }
+}
+
+fn parse_long_seconds(command: &str) -> Option<u64> {
+    let seconds = command.strip_prefix('@')?.parse::<f32>().ok()?;
+    if seconds.is_sign_negative() {
+        return None;
+    }
+
+    Some((seconds * 1_000.0).floor() as u64)
 }
 
 #[cfg(test)]
@@ -178,5 +193,20 @@ mod tests {
 
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].comment.text, "visible");
+    }
+
+    #[test]
+    fn parses_long_command_into_lifetime() {
+        let comment = RenderComment {
+            text: "slow".to_string(),
+            vpos_ms: 0,
+            mail: vec!["@5.5".to_string()],
+            owner: false,
+            layer: 1,
+        };
+
+        let style = resolve_style(&comment);
+
+        assert_eq!(style.lifetime_ms, 5_500);
     }
 }
