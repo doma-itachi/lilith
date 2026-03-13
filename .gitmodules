@@ -1,0 +1,3 @@
+[submodule "vendor/niconicomments"]
+	path = vendor/niconicomments
+	url = https://github.com/xpadev-net/niconicomments.git
