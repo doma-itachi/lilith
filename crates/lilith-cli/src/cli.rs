@@ -60,7 +60,7 @@ impl From<HwaccelArg> for HardwareAccel {
     }
 }
 
-pub fn run(args: impl IntoIterator<Item = String>) -> Result<()> {
+pub async fn run(args: impl IntoIterator<Item = String>) -> Result<()> {
     let cli = match Cli::try_parse_from(args) {
         Ok(cli) => cli,
         Err(error)
@@ -77,7 +77,7 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<()> {
 
     let job = build_job(&cli.url, config_from_cli(&cli))?;
 
-    commands::download::run(job)
+    commands::download::run(job).await
 }
 
 fn config_from_cli(cli: &Cli) -> AppConfig {

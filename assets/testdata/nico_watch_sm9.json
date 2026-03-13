@@ -1,0 +1,71 @@
+{
+  "data": {
+    "response": {
+      "video": {
+        "id": "sm9",
+        "title": "Let's Go! Onmyouji",
+        "duration": 320,
+        "registeredAt": "2007-03-06T00:33:00+09:00"
+      },
+      "comment": {
+        "layers": [
+          {
+            "index": 0,
+            "threadIds": [
+              {
+                "id": 1173108780,
+                "forkLabel": "owner"
+              }
+            ]
+          },
+          {
+            "index": 1,
+            "threadIds": [
+              {
+                "id": 1173108780,
+                "forkLabel": "main"
+              }
+            ]
+          }
+        ],
+        "threads": [
+          {
+            "id": 1173108780,
+            "forkLabel": "owner",
+            "isActive": false,
+            "isDefaultPostTarget": false,
+            "isOwnerThread": true,
+            "isLeafRequired": false,
+            "server": ""
+          },
+          {
+            "id": 1173108780,
+            "forkLabel": "main",
+            "isActive": true,
+            "isDefaultPostTarget": true,
+            "isOwnerThread": false,
+            "isLeafRequired": true,
+            "server": ""
+          }
+        ],
+        "nvComment": {
+          "server": "https://public.nvcomment.nicovideo.jp",
+          "threadKey": "thread-key",
+          "params": {
+            "language": "ja-jp",
+            "targets": [
+              {
+                "id": "1173108780",
+                "fork": "owner"
+              },
+              {
+                "id": "1173108780",
+                "fork": "main"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

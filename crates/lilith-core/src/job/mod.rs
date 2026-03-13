@@ -16,5 +16,18 @@ pub struct JobPaths {
     pub source_video: PathBuf,
     pub comments_json: PathBuf,
     pub overlay_rgba: PathBuf,
+    pub preview_video: PathBuf,
     pub output_video: PathBuf,
+}
+
+impl JobPaths {
+    pub fn source_download_template(&self) -> PathBuf {
+        let stem = self
+            .source_video
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("source");
+
+        self.temp_dir.join(format!("{stem}.%(ext)s"))
+    }
 }

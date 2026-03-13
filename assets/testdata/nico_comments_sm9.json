@@ -1,0 +1,71 @@
+{
+  "data": {
+    "globalComments": [
+      {
+        "id": "1173108780",
+        "count": 3
+      }
+    ],
+    "threads": [
+      {
+        "id": 1173108780,
+        "fork": "owner",
+        "commentCount": 1,
+        "comments": [
+          {
+            "id": 100,
+            "no": 1,
+            "vposMs": 200,
+            "body": "owner cmd",
+            "commands": ["invisible"],
+            "isPremium": false,
+            "postedAt": "2020-01-01T00:00:01Z",
+            "nicoruCount": 0,
+            "source": "owner",
+            "isMyPost": false
+          }
+        ]
+      },
+      {
+        "id": 1173108780,
+        "fork": "main",
+        "commentCount": 1,
+        "comments": [
+          {
+            "id": 101,
+            "no": 2,
+            "vposMs": 100,
+            "body": "aaa",
+            "commands": ["184"],
+            "userId": "user-a",
+            "isPremium": true,
+            "postedAt": "2020-01-01T00:00:00Z",
+            "nicoruCount": 2,
+            "source": "leaf",
+            "isMyPost": false
+          }
+        ]
+      },
+      {
+        "id": 1173108780,
+        "fork": "easy",
+        "commentCount": 1,
+        "comments": [
+          {
+            "id": 102,
+            "no": 3,
+            "vposMs": 300,
+            "body": "bbb",
+            "commands": ["shita", "red"],
+            "userId": "user-b",
+            "isPremium": false,
+            "postedAt": "2020-01-01T00:00:02Z",
+            "nicoruCount": 1,
+            "source": "leaf",
+            "isMyPost": true
+          }
+        ]
+      }
+    ]
+  }
+}

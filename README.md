@@ -6,7 +6,8 @@ Lilith is a Rust workspace for a fast NicoNico downloader that fetches a source 
 
 - Phase 0 workspace scaffold is in place.
 - Phase 1 CLI parsing and job bootstrap are implemented.
-- Download, NicoNico API, renderer, and ffmpeg integration are still scaffold crates.
+- Phase 3 `yt-dlp` download wrapper and Phase 4 watch metadata fetch are in place.
+- Comment fetch, renderer, and ffmpeg integration are still scaffold crates.
 
 ## Workspace
 
