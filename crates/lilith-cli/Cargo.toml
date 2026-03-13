@@ -1,0 +1,7 @@
+[package]
+name = "lilith-cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+lilith-core.workspace = true

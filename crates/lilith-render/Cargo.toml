@@ -1,0 +1,6 @@
+[package]
+name = "lilith-render"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

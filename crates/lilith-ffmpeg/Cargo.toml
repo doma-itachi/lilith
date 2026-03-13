@@ -1,0 +1,6 @@
+[package]
+name = "lilith-ffmpeg"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

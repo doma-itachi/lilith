@@ -1,0 +1,20 @@
+[workspace]
+members = [
+    "crates/lilith-cli",
+    "crates/lilith-core",
+    "crates/lilith-nico",
+    "crates/lilith-render",
+    "crates/lilith-ffmpeg",
+]
+default-members = ["crates/lilith-cli"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+lilith-core = { path = "crates/lilith-core" }
+lilith-nico = { path = "crates/lilith-nico" }
+lilith-render = { path = "crates/lilith-render" }
+lilith-ffmpeg = { path = "crates/lilith-ffmpeg" }

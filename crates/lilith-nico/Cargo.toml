@@ -1,0 +1,6 @@
+[package]
+name = "lilith-nico"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
