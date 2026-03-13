@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use cosmic_text::{
     Attrs, AttrsOwned, Buffer, Color, Family, FamilyOwned, FontSystem, Metrics, Shaping,
-    SwashCache, Wrap,
+    SwashCache, Weight, Wrap,
 };
 use tiny_skia::{Paint, Pixmap, Rect, Transform};
 
@@ -11,6 +11,7 @@ use crate::engine::RenderError;
 #[derive(Debug, Clone)]
 pub struct FontCatalog {
     pub default_family: String,
+    pub default_weight: Weight,
     pub custom_font: Option<PathBuf>,
 }
 
@@ -18,6 +19,7 @@ impl Default for FontCatalog {
     fn default() -> Self {
         Self {
             default_family: "Hiragino Sans".to_string(),
+            default_weight: Weight::SEMIBOLD,
             custom_font: None,
         }
     }
@@ -34,6 +36,7 @@ pub struct FontContext {
     font_system: FontSystem,
     swash_cache: SwashCache,
     family: FamilyOwned,
+    weight: Weight,
 }
 
 impl FontContext {
@@ -61,6 +64,7 @@ impl FontContext {
             font_system,
             swash_cache: SwashCache::new(),
             family: family_owned(&family_name),
+            weight: catalog.default_weight,
         })
     }
 
@@ -186,7 +190,11 @@ impl FontContext {
     }
 
     fn attrs(&self) -> AttrsOwned {
-        AttrsOwned::new(&Attrs::new().family(self.family.as_family()))
+        AttrsOwned::new(
+            &Attrs::new()
+                .family(self.family.as_family())
+                .weight(self.weight),
+        )
     }
 }
 
