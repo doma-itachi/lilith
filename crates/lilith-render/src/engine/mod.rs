@@ -238,11 +238,7 @@ impl RenderEngine {
 
     fn prepare_comment(&mut self, comment: &RenderComment) -> Result<PreparedComment, RenderError> {
         let style = crate::timeline::resolve_style(comment);
-        let font_size = match style.size {
-            CommentSize::Small => self.config.medium_font_size * 0.72,
-            CommentSize::Medium => self.config.medium_font_size,
-            CommentSize::Big => self.config.medium_font_size * 1.45,
-        };
+        let font_size = self.scaled_font_size(style.size);
         let metrics = self.font_context.measure_text(&comment.text, font_size);
         let sprite = self.font_context.render_text_sprite(
             &comment.text,
@@ -279,7 +275,7 @@ impl RenderEngine {
     fn assign_lanes(&self, comments: &mut [PreparedComment]) {
         let frame_height = self.config.frame_size.height as f32;
         let lane_step = self.max_lane_step();
-        let margin = 24.0_f32;
+        let margin = self.scaled_margin();
         let mut groups = HashMap::<CollisionGroup, LaneScheduler>::new();
 
         for comment in comments {
@@ -304,7 +300,28 @@ impl RenderEngine {
     }
 
     fn max_lane_step(&self) -> f32 {
-        self.config.medium_font_size * 1.45 * 1.2 + 8.0
+        self.scaled_font_size(CommentSize::Big) * 1.2 + self.resolution_scale() * 8.0
+    }
+
+    fn scaled_font_size(&self, size: CommentSize) -> f32 {
+        let medium = self.config.medium_font_size * self.resolution_scale();
+
+        match size {
+            CommentSize::Small => medium * (18.0 / 27.0),
+            CommentSize::Medium => medium,
+            CommentSize::Big => medium * (39.0 / 27.0),
+        }
+    }
+
+    fn scaled_margin(&self) -> f32 {
+        24.0 * self.resolution_scale()
+    }
+
+    fn resolution_scale(&self) -> f32 {
+        let width_scale = self.config.frame_size.width as f32 / 1920.0;
+        let height_scale = self.config.frame_size.height as f32 / 1080.0;
+
+        width_scale.min(height_scale)
     }
 
     fn comment_active_window(
@@ -637,7 +654,7 @@ pub enum RenderError {
 mod tests {
     use crate::{
         engine::{RenderConfig, RenderEngine, RenderRequest},
-        timeline::{RenderComment, TimestampMs},
+        timeline::{CommentSize, RenderComment, TimestampMs},
     };
 
     #[test]
@@ -808,6 +825,27 @@ mod tests {
         let item = &positioned[0];
         assert!(item.x > 200.0);
         assert!(item.x < 1_100.0);
+    }
+
+    #[test]
+    fn font_size_scales_with_resolution() {
+        let mut hd = RenderConfig::default();
+        hd.frame_size.width = 1920;
+        hd.frame_size.height = 1080;
+        hd.medium_font_size = 27.0;
+        let engine_hd = RenderEngine::new(hd).unwrap();
+
+        let mut sd = RenderConfig::default();
+        sd.frame_size.width = 640;
+        sd.frame_size.height = 360;
+        sd.medium_font_size = 27.0;
+        let engine_sd = RenderEngine::new(sd).unwrap();
+
+        assert!(
+            engine_hd.scaled_font_size(CommentSize::Medium)
+                > engine_sd.scaled_font_size(CommentSize::Medium)
+        );
+        assert_eq!(engine_hd.scaled_font_size(CommentSize::Medium), 27.0);
     }
 
     #[test]

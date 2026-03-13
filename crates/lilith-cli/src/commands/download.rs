@@ -112,6 +112,7 @@ pub async fn run(job: Job) -> Result<()> {
     let mut render_config = RenderConfig::default();
     render_config.frame_size.width = video_info.width;
     render_config.frame_size.height = video_info.height;
+    render_config.medium_font_size = 70.0;
     let mut render_engine = RenderEngine::new(render_config.clone())
         .context("failed to initialize render engine")?;
     let prepared_preview_comments = render_engine
