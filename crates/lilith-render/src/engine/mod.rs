@@ -1,5 +1,5 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::{collections::HashMap, ops::Range};
 
 use thiserror::Error;
 use tiny_skia::Pixmap;
@@ -55,19 +55,29 @@ pub struct RenderEngine {
 pub struct PreparedComment {
     pub text: String,
     pub vpos_ms: u64,
+    pub end_ms: u64,
     pub owner: bool,
     pub layer: i32,
     pub placement: CommentPlacement,
     pub lifetime_ms: u64,
+    pub lane: usize,
+    pub y: f32,
     pub sprite: tiny_skia::Pixmap,
     pub width: f32,
     pub height: f32,
+    pub font_size: f32,
     pub line_height: f32,
 }
 
 #[derive(Debug, Clone)]
 pub struct PreparedCommentSet {
     comments: Vec<PreparedComment>,
+}
+
+pub struct PreparedFrameSequence<'a> {
+    comments: &'a [PreparedComment],
+    next_index: usize,
+    active_indices: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -91,10 +101,18 @@ impl RenderEngine {
         &mut self,
         comments: &[RenderComment],
     ) -> Result<PreparedCommentSet, RenderError> {
-        let prepared = comments
+        let mut prepared = comments
             .iter()
             .map(|comment| self.prepare_comment(comment))
             .collect::<Result<Vec<_>, _>>()?;
+
+        prepared.sort_by(|left, right| {
+            left.vpos_ms
+                .cmp(&right.vpos_ms)
+                .then_with(|| left.layer.cmp(&right.layer))
+                .then_with(|| left.text.cmp(&right.text))
+        });
+        self.assign_lanes(&mut prepared);
 
         Ok(PreparedCommentSet { comments: prepared })
     }
@@ -113,13 +131,23 @@ impl RenderEngine {
         comments: &PreparedCommentSet,
         request: RenderRequest,
     ) -> Result<RenderFrame, RenderError> {
+        let mut sequence = comments.sequence();
+        self.render_prepared_frame_with_sequence(&mut sequence, request)
+    }
+
+    pub fn render_prepared_frame_with_sequence(
+        &mut self,
+        sequence: &mut PreparedFrameSequence<'_>,
+        request: RenderRequest,
+    ) -> Result<RenderFrame, RenderError> {
         let mut pixmap = Pixmap::new(request.frame_size.width, request.frame_size.height).ok_or(
             RenderError::PixmapAllocation {
                 width: request.frame_size.width,
                 height: request.frame_size.height,
             },
         )?;
-        let draw_items = self.layout_prepared_comments(comments.comments.as_slice(), request);
+        let active = sequence.advance_to(request.timestamp);
+        let draw_items = self.layout_prepared_comments(&active, request);
 
         for item in draw_items {
             let mut paint = tiny_skia::PixmapPaint::default();
@@ -127,7 +155,7 @@ impl RenderEngine {
             pixmap.draw_pixmap(
                 item.x.round() as i32,
                 item.y.round() as i32,
-                comments.comments[item.index].sprite.as_ref(),
+                sequence.comment(item.index).sprite.as_ref(),
                 &paint,
                 tiny_skia::Transform::identity(),
                 None,
@@ -143,12 +171,25 @@ impl RenderEngine {
         comments: &[RenderComment],
         request: RenderRequest,
     ) -> Vec<PositionedComment> {
-        let prepared = comments
+        let mut prepared = comments
             .iter()
             .filter_map(|comment| self.prepare_comment(comment).ok())
             .collect::<Vec<_>>();
+        prepared.sort_by(|left, right| {
+            left.vpos_ms
+                .cmp(&right.vpos_ms)
+                .then_with(|| left.layer.cmp(&right.layer))
+                .then_with(|| left.text.cmp(&right.text))
+        });
+        self.assign_lanes(&mut prepared);
 
-        self.layout_prepared_comments(&prepared, request)
+        let active = prepared
+            .iter()
+            .enumerate()
+            .map(|(index, comment)| IndexedPreparedComment { index, comment })
+            .collect::<Vec<_>>();
+
+        self.layout_prepared_comments(&active, request)
             .into_iter()
             .map(|item| PositionedComment {
                 text: prepared[item.index].text.clone(),
@@ -165,21 +206,15 @@ impl RenderEngine {
 
     fn layout_prepared_comments(
         &mut self,
-        comments: &[PreparedComment],
+        comments: &[IndexedPreparedComment<'_>],
         request: RenderRequest,
     ) -> Vec<PreparedLayoutItem> {
-        let active = active_prepared_comments(comments, request.timestamp);
-        let lane_padding = 8.0_f32;
         let side_padding = 24.0_f32;
-        let horizontal_padding = 16.0_f32;
         let frame_width = request.frame_size.width as f32;
-        let frame_height = request.frame_size.height as f32;
-        let mut positioned = Vec::with_capacity(active.len());
-        let mut lanes = HashMap::<CollisionGroup, LaneAllocator>::new();
+        let mut positioned = Vec::with_capacity(comments.len());
 
-        for item in active {
+        for item in comments {
             let comment = item.comment;
-            let lane_height = comment.line_height + lane_padding;
             let progress = (request.timestamp.0.saturating_sub(comment.vpos_ms) as f32)
                 / comment.lifetime_ms as f32;
             let base_x = match comment.placement {
@@ -190,29 +225,12 @@ impl RenderEngine {
                     ((frame_width - comment.width) / 2.0).max(side_padding)
                 }
             };
-            let span = base_x..(base_x + comment.width);
-            let group = CollisionGroup {
-                placement: comment.placement,
-                owner: comment.owner,
-                layer: comment.layer,
-            };
-            let lane_allocator = lanes.entry(group).or_insert_with(|| {
-                LaneAllocator::new(comment.placement, frame_height, 24.0, horizontal_padding)
-            });
-            let (lane, y) = lane_allocator
-                .place(span.clone(), lane_height)
-                .unwrap_or_else(|| {
-                    let fallback_lane = lane_allocator.fallback_lane();
-                    let y = lane_allocator.lanes[fallback_lane].y;
-                    lane_allocator.lanes[fallback_lane].spans.push(span.clone());
-                    (fallback_lane, y)
-                });
 
             positioned.push(PreparedLayoutItem {
                 index: item.index,
-                lane,
+                lane: comment.lane,
                 x: base_x.max(-comment.width),
-                y,
+                y: comment.y,
             });
         }
 
@@ -237,48 +255,105 @@ impl RenderEngine {
         Ok(PreparedComment {
             text: comment.text.clone(),
             vpos_ms: comment.vpos_ms,
+            end_ms: comment.vpos_ms.saturating_add(style.lifetime_ms),
             owner: comment.owner,
             layer: comment.layer,
             placement: style.placement,
             lifetime_ms: style.lifetime_ms,
+            lane: 0,
+            y: 0.0,
             sprite,
             width: metrics.width,
             height: metrics.height,
+            font_size,
             line_height: metrics.line_height,
         })
     }
+
+    fn assign_lanes(&self, comments: &mut [PreparedComment]) {
+        let frame_height = self.config.frame_size.height as f32;
+        let lane_step = self.max_lane_step();
+        let margin = 24.0_f32;
+        let mut groups = HashMap::<CollisionGroup, LaneScheduler>::new();
+
+        for comment in comments {
+            let group = CollisionGroup {
+                placement: comment.placement,
+                owner: comment.owner,
+                layer: comment.layer,
+            };
+            let scheduler = groups.entry(group).or_insert_with(|| {
+                LaneScheduler::new(
+                    comment.placement,
+                    frame_height,
+                    margin,
+                    lane_step,
+                    self.config.frame_size.width as f32,
+                )
+            });
+            let assignment = scheduler.assign(comment);
+            comment.lane = assignment.lane;
+            comment.y = assignment.y;
+        }
+    }
+
+    fn max_lane_step(&self) -> f32 {
+        self.config.medium_font_size * 1.45 * 1.2 + 8.0
+    }
 }
 
-fn active_prepared_comments<'a>(
-    comments: &'a [PreparedComment],
-    timestamp: TimestampMs,
-) -> Vec<IndexedPreparedComment<'a>> {
-    let mut active = comments
-        .iter()
-        .enumerate()
-        .filter(|comment| {
-            let end = comment.1.vpos_ms.saturating_add(comment.1.lifetime_ms);
-            comment.1.vpos_ms <= timestamp.0
-                && timestamp.0 < end
-                && !comment.1.text.trim().is_empty()
-        })
-        .map(|(index, comment)| IndexedPreparedComment { index, comment })
-        .collect::<Vec<_>>();
-
-    active.sort_by(|left, right| {
-        left.comment
-            .vpos_ms
-            .cmp(&right.comment.vpos_ms)
-            .then_with(|| left.comment.layer.cmp(&right.comment.layer))
-            .then_with(|| left.comment.text.cmp(&right.comment.text))
-    });
-
-    active
-}
-
-struct IndexedPreparedComment<'a> {
+#[derive(Clone, Copy)]
+pub struct IndexedPreparedComment<'a> {
     index: usize,
     comment: &'a PreparedComment,
+}
+
+impl IndexedPreparedComment<'_> {
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    pub fn comment(&self) -> &PreparedComment {
+        self.comment
+    }
+}
+
+impl PreparedCommentSet {
+    pub fn sequence(&self) -> PreparedFrameSequence<'_> {
+        PreparedFrameSequence {
+            comments: &self.comments,
+            next_index: 0,
+            active_indices: Vec::new(),
+        }
+    }
+}
+
+impl PreparedFrameSequence<'_> {
+    pub fn advance_to(&mut self, timestamp: TimestampMs) -> Vec<IndexedPreparedComment<'_>> {
+        while self.next_index < self.comments.len()
+            && self.comments[self.next_index].vpos_ms <= timestamp.0
+        {
+            self.active_indices.push(self.next_index);
+            self.next_index += 1;
+        }
+
+        self.active_indices
+            .retain(|index| timestamp.0 < self.comments[*index].end_ms);
+
+        self.active_indices
+            .iter()
+            .copied()
+            .filter(|index| !self.comments[*index].text.trim().is_empty())
+            .map(|index| IndexedPreparedComment {
+                index,
+                comment: &self.comments[index],
+            })
+            .collect()
+    }
+
+    pub fn comment(&self, index: usize) -> &PreparedComment {
+        &self.comments[index]
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -289,84 +364,150 @@ struct CollisionGroup {
 }
 
 #[derive(Debug)]
-struct LaneAllocator {
+struct LaneAssignment {
+    lane: usize,
+    y: f32,
+}
+
+struct LaneScheduler {
     placement: CommentPlacement,
     frame_height: f32,
     margin: f32,
-    horizontal_padding: f32,
-    lanes: Vec<LaneState>,
+    lane_step: f32,
+    frame_width: f32,
+    lanes: Vec<ScheduledLane>,
 }
 
-impl LaneAllocator {
+impl LaneScheduler {
     fn new(
         placement: CommentPlacement,
         frame_height: f32,
         margin: f32,
-        horizontal_padding: f32,
+        lane_step: f32,
+        frame_width: f32,
     ) -> Self {
         Self {
             placement,
             frame_height,
             margin,
-            horizontal_padding,
+            lane_step,
+            frame_width,
             lanes: Vec::new(),
         }
     }
 
-    fn place(&mut self, span: Range<f32>, lane_height: f32) -> Option<(usize, f32)> {
-        for (index, lane) in self.lanes.iter_mut().enumerate() {
-            if !lane.overlaps(&span, self.horizontal_padding) {
-                lane.spans.push(span);
-                return Some((index, lane.y));
+    fn assign(&mut self, comment: &PreparedComment) -> LaneAssignment {
+        for (lane_index, lane) in self.lanes.iter_mut().enumerate() {
+            if lane.can_place(comment, self.placement, self.frame_width) {
+                lane.push(comment, self.placement, self.frame_width);
+                return LaneAssignment {
+                    lane: lane_index,
+                    y: self.lane_y(lane_index),
+                };
             }
         }
 
-        let y = self.next_lane_y(lane_height)?;
-        let lane = LaneState {
-            y,
-            spans: vec![span],
-        };
-        self.lanes.push(lane);
-        Some((self.lanes.len() - 1, y))
-    }
+        let lane_index = self.lanes.len();
+        if self.lane_y(lane_index) + self.lane_step > self.frame_height
+            && self.placement != CommentPlacement::Bottom
+        {
+            return LaneAssignment {
+                lane: 0,
+                y: self.lane_y(0),
+            };
+        }
+        self.lanes.push(ScheduledLane::new(
+            comment,
+            self.placement,
+            self.frame_width,
+        ));
 
-    fn next_lane_y(&self, lane_height: f32) -> Option<f32> {
-        let y = match self.placement {
-            CommentPlacement::Scroll | CommentPlacement::Top => self
-                .lanes
-                .last()
-                .map(|lane| lane.y + lane_height)
-                .unwrap_or(self.margin),
-            CommentPlacement::Bottom => self
-                .lanes
-                .last()
-                .map(|lane| lane.y - lane_height)
-                .unwrap_or(self.frame_height - self.margin - lane_height),
-        };
-
-        if y < 0.0 || y + lane_height > self.frame_height {
-            None
-        } else {
-            Some(y)
+        LaneAssignment {
+            lane: lane_index,
+            y: self.lane_y(lane_index),
         }
     }
 
-    fn fallback_lane(&self) -> usize {
-        0
+    fn lane_y(&self, lane_index: usize) -> f32 {
+        match self.placement {
+            CommentPlacement::Scroll | CommentPlacement::Top => {
+                self.margin + lane_index as f32 * self.lane_step
+            }
+            CommentPlacement::Bottom => {
+                self.frame_height - self.margin - (lane_index as f32 + 1.0) * self.lane_step
+            }
+        }
     }
 }
 
-#[derive(Debug)]
-struct LaneState {
-    y: f32,
-    spans: Vec<Range<f32>>,
+struct ScheduledLane {
+    last_start_ms: u64,
+    last_end_ms: u64,
+    last_width: f32,
+    last_lifetime_ms: u64,
 }
 
-impl LaneState {
-    fn overlaps(&self, span: &Range<f32>, padding: f32) -> bool {
-        self.spans.iter().any(|existing| {
-            span.start < existing.end + padding && span.end + padding > existing.start
-        })
+impl ScheduledLane {
+    fn new(comment: &PreparedComment, placement: CommentPlacement, frame_width: f32) -> Self {
+        let mut lane = Self {
+            last_start_ms: 0,
+            last_end_ms: 0,
+            last_width: 0.0,
+            last_lifetime_ms: 0,
+        };
+        lane.push(comment, placement, frame_width);
+        lane
+    }
+
+    fn can_place(
+        &self,
+        comment: &PreparedComment,
+        placement: CommentPlacement,
+        frame_width: f32,
+    ) -> bool {
+        match placement {
+            CommentPlacement::Top | CommentPlacement::Bottom => comment.vpos_ms >= self.last_end_ms,
+            CommentPlacement::Scroll => self.can_place_scroll(comment, frame_width),
+        }
+    }
+
+    fn push(&mut self, comment: &PreparedComment, _placement: CommentPlacement, _frame_width: f32) {
+        self.last_start_ms = comment.vpos_ms;
+        self.last_end_ms = comment.end_ms;
+        self.last_width = comment.width;
+        self.last_lifetime_ms = comment.lifetime_ms;
+    }
+
+    fn can_place_scroll(&self, comment: &PreparedComment, frame_width: f32) -> bool {
+        if comment.vpos_ms >= self.last_end_ms {
+            return true;
+        }
+
+        let overlap_window = self.last_start_ms.saturating_add(1_000);
+        if comment.vpos_ms < overlap_window {
+            return false;
+        }
+
+        let side_padding = 24.0_f32;
+        let horizontal_padding = 16.0_f32;
+        let previous_speed = (frame_width + self.last_width) / self.last_lifetime_ms as f32;
+        let current_speed = (frame_width + comment.width) / comment.lifetime_ms as f32;
+        let elapsed = comment.vpos_ms.saturating_sub(self.last_start_ms) as f32;
+        let previous_x = frame_width
+            - side_padding
+            - (elapsed / self.last_lifetime_ms as f32) * (frame_width + self.last_width);
+        let gap =
+            (frame_width - side_padding) - (previous_x + self.last_width + horizontal_padding);
+
+        if gap < 0.0 {
+            return false;
+        }
+        if current_speed <= previous_speed {
+            return true;
+        }
+
+        let catch_time = gap / (current_speed - previous_speed);
+        comment.vpos_ms as f32 + catch_time >= self.last_end_ms as f32
     }
 }
 
@@ -422,6 +563,44 @@ mod tests {
         assert_eq!(frame.width(), 1280);
         assert_eq!(frame.height(), 720);
         assert!(frame.rgba().chunks_exact(4).any(|pixel| pixel[3] != 0));
+    }
+
+    #[test]
+    fn sequential_frame_sequence_matches_activation_order() {
+        let mut engine = RenderEngine::new(RenderConfig::default()).unwrap();
+        let prepared = engine
+            .prepare_comments(&[
+                RenderComment {
+                    text: "a".to_string(),
+                    vpos_ms: 0,
+                    mail: Vec::new(),
+                    owner: false,
+                    layer: 1,
+                },
+                RenderComment {
+                    text: "b".to_string(),
+                    vpos_ms: 500,
+                    mail: Vec::new(),
+                    owner: false,
+                    layer: 1,
+                },
+            ])
+            .unwrap();
+        let mut sequence = prepared.sequence();
+
+        let first = sequence
+            .advance_to(TimestampMs(0))
+            .into_iter()
+            .map(|item| item.comment().text.clone())
+            .collect::<Vec<_>>();
+        let second = sequence
+            .advance_to(TimestampMs(600))
+            .into_iter()
+            .map(|item| item.comment().text.clone())
+            .collect::<Vec<_>>();
+
+        assert_eq!(first, vec!["a"]);
+        assert_eq!(second, vec!["a", "b"]);
     }
 
     #[test]

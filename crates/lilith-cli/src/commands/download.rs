@@ -284,12 +284,14 @@ async fn stream_rendered_video(
         .await
         .with_context(|| format!("failed to start ffmpeg pipe for {}", plan.output_video.display()))?;
     let progress_step = (plan.frame_count / 20).max(1);
+    let mut stderr = std::io::stderr().lock();
+    let mut sequence = render_comments.sequence();
 
     for frame_index in 0..plan.frame_count {
         let timestamp_ms = start_ms + ((frame_index as u64) * 1_000 * plan.fps_den as u64) / plan.fps_num as u64;
         let frame = render_engine
-            .render_prepared_frame(
-                render_comments,
+            .render_prepared_frame_with_sequence(
+                &mut sequence,
                 RenderRequest {
                     timestamp: TimestampMs(timestamp_ms),
                     frame_size,
@@ -302,7 +304,9 @@ async fn stream_rendered_video(
             .with_context(|| format!("failed to stream frame {} to ffmpeg", frame_index))?;
 
         if frame_index % progress_step == 0 || frame_index + 1 == plan.frame_count {
-            eprintln!(
+            use std::io::Write as _;
+            let _ = writeln!(
+                stderr,
                 "rendering {}: {}/{} frames",
                 plan.output_video.display(),
                 frame_index + 1,
