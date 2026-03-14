@@ -90,16 +90,7 @@ pub fn resolve_style(comment: &RenderComment) -> CommentStyle {
             "shita" => placement = CommentPlacement::Bottom,
             "big" => size = CommentSize::Big,
             "small" => size = CommentSize::Small,
-            "red" => color = rgb(0xff, 0x44, 0x44),
-            "pink" => color = rgb(0xff, 0x80, 0xbf),
-            "orange" => color = rgb(0xff, 0x99, 0x33),
-            "yellow" => color = rgb(0xff, 0xee, 0x58),
-            "green" => color = rgb(0x7c, 0xe3, 0x73),
-            "cyan" => color = rgb(0x56, 0xe0, 0xff),
-            "blue" => color = rgb(0x6f, 0x95, 0xff),
-            "purple" => color = rgb(0xc0, 0x7b, 0xff),
-            "black" => color = rgb(0x22, 0x22, 0x22),
-            "white" => color = rgb(0xff, 0xff, 0xff),
+            _ if matches_color_command(command) => color = resolve_color(command),
             _ if command.starts_with('@') => {
                 if let Some(seconds) = parse_long_seconds(command) {
                     lifetime_ms = seconds;
@@ -128,6 +119,65 @@ fn is_active(comment: &RenderComment, timestamp: TimestampMs, style: CommentStyl
 
 const fn rgb(r: u8, g: u8, b: u8) -> CommentColor {
     CommentColor { r, g, b, a: 0xff }
+}
+
+fn matches_color_command(command: &str) -> bool {
+    matches!(
+        command,
+        "white"
+            | "red"
+            | "pink"
+            | "orange"
+            | "yellow"
+            | "green"
+            | "cyan"
+            | "blue"
+            | "purple"
+            | "black"
+            | "white2"
+            | "niconicowhite"
+            | "red2"
+            | "truered"
+            | "pink2"
+            | "orange2"
+            | "passionorange"
+            | "yellow2"
+            | "madyellow"
+            | "green2"
+            | "elementalgreen"
+            | "cyan2"
+            | "blue2"
+            | "marinblue"
+            | "purple2"
+            | "nobleviolet"
+            | "black2"
+    )
+}
+
+fn resolve_color(command: &str) -> CommentColor {
+    match command {
+        "white" => rgb(0xff, 0xff, 0xff),
+        "red" => rgb(0xff, 0x00, 0x00),
+        "pink" => rgb(0xff, 0x80, 0x80),
+        "orange" => rgb(0xff, 0xc0, 0x00),
+        "yellow" => rgb(0xff, 0xff, 0x00),
+        "green" => rgb(0x00, 0xff, 0x00),
+        "cyan" => rgb(0x00, 0xff, 0xff),
+        "blue" => rgb(0x00, 0x00, 0xff),
+        "purple" => rgb(0xc0, 0x00, 0xff),
+        "black" => rgb(0x00, 0x00, 0x00),
+        "white2" | "niconicowhite" => rgb(0xcc, 0xcc, 0x99),
+        "red2" | "truered" => rgb(0xcc, 0x00, 0x33),
+        "pink2" => rgb(0xff, 0x33, 0xcc),
+        "orange2" | "passionorange" => rgb(0xff, 0x66, 0x00),
+        "yellow2" | "madyellow" => rgb(0x99, 0x99, 0x00),
+        "green2" | "elementalgreen" => rgb(0x00, 0xcc, 0x66),
+        "cyan2" => rgb(0x00, 0xcc, 0xcc),
+        "blue2" | "marinblue" => rgb(0x33, 0x99, 0xff),
+        "purple2" | "nobleviolet" => rgb(0x66, 0x33, 0xcc),
+        "black2" => rgb(0x66, 0x66, 0x66),
+        _ => rgb(0xff, 0xff, 0xff),
+    }
 }
 
 fn parse_long_seconds(command: &str) -> Option<u64> {
@@ -160,7 +210,45 @@ mod tests {
         assert_eq!(style.placement, CommentPlacement::Top);
         assert_eq!(style.size, CommentSize::Big);
         assert_eq!(style.color.r, 0xff);
-        assert_eq!(style.color.g, 0x44);
+        assert_eq!(style.color.g, 0x00);
+        assert_eq!(style.color.b, 0x00);
+    }
+
+    #[test]
+    fn resolves_extended_niconico_color_commands() {
+        let comment = RenderComment {
+            text: "hello".to_string(),
+            vpos_ms: 100,
+            mail: vec!["niconicowhite".to_string(), "passionorange".to_string()],
+            owner: false,
+            layer: 1,
+        };
+
+        let style = resolve_style(&comment);
+
+        assert_eq!(style.color.r, 0xff);
+        assert_eq!(style.color.g, 0x66);
+        assert_eq!(style.color.b, 0x00);
+    }
+
+    #[test]
+    fn resolves_aliases_to_same_color() {
+        let left = RenderComment {
+            text: "left".to_string(),
+            vpos_ms: 0,
+            mail: vec!["truered".to_string()],
+            owner: false,
+            layer: 0,
+        };
+        let right = RenderComment {
+            text: "right".to_string(),
+            vpos_ms: 0,
+            mail: vec!["red2".to_string()],
+            owner: false,
+            layer: 0,
+        };
+
+        assert_eq!(resolve_style(&left).color, resolve_style(&right).color);
     }
 
     #[test]
