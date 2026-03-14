@@ -36,7 +36,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            output_dir: PathBuf::from("output"),
+            output_dir: PathBuf::from("."),
             keep_temp: false,
             hwaccel: HardwareAccel::Auto,
             font: None,

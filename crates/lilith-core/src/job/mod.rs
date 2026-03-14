@@ -16,7 +16,6 @@ pub struct JobPaths {
     pub source_video: PathBuf,
     pub comments_json: PathBuf,
     pub overlay_rgba: PathBuf,
-    pub preview_video: PathBuf,
     pub output_video: PathBuf,
 }
 

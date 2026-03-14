@@ -61,8 +61,9 @@ cargo run -p lilith-cli --bin lilith -- --help
 
 ## Notes
 
-- Output defaults to `output/`.
-- Temporary job files are planned under `output/.lilith/<video_id>/`.
+- Output defaults to the current directory, similar to `yt-dlp`.
+- Final files are named `<video title>[<video id>][コメ付き].mp4`.
+- Temporary job files are written under `<output dir>/.lilith/<video_id>/` and removed after success unless `--keep-temp` is set.
 - The renderer bundles `assets/fonts/NotoSansJP-VariableFont_wght.ttf` into the binary and uses it as the fallback default font.
 - On macOS, Lilith prefers installed Hiragino families first and falls back to bundled `Noto Sans JP` when Hiragino is unavailable.
 - `--font` still works as an override when you want to force a different local font.

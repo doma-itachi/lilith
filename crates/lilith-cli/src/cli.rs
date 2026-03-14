@@ -20,7 +20,7 @@ struct Cli {
         short = 'o',
         long = "output-dir",
         value_name = "DIR",
-        default_value = "output"
+        default_value = "."
     )]
     output_dir: PathBuf,
 

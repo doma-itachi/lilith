@@ -60,7 +60,6 @@ fn build_paths(output_dir: &Path, video_id: &VideoId) -> JobPaths {
         source_video: temp_dir.join("source.mp4"),
         comments_json: temp_dir.join("comments.json"),
         overlay_rgba: temp_dir.join("overlay.rgba"),
-        preview_video: temp_dir.join("preview.mp4"),
         output_video: output_dir.join(format!("{}.mp4", video_id.as_str())),
         temp_dir,
     }
@@ -111,10 +110,6 @@ mod tests {
         assert_eq!(
             job.paths.source_video,
             PathBuf::from("dist/.lilith/sm9/source.mp4")
-        );
-        assert_eq!(
-            job.paths.preview_video,
-            PathBuf::from("dist/.lilith/sm9/preview.mp4")
         );
         assert_eq!(job.paths.output_video, PathBuf::from("dist/sm9.mp4"));
     }

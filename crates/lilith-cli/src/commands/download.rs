@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use lilith_core::Job;
 use lilith_ffmpeg::{
-    compose_video_from_pipe, probe_video, resolve_video_encoder, spawn_pipe_composer,
-    write_raw_rgba_file, CompositionPlan, HardwareAccelMode,
+    probe_video, resolve_video_encoder, spawn_pipe_composer, CompositionPlan,
+    HardwareAccelMode,
 };
 use lilith_nico::api::NicoApiClient;
 use lilith_nico::parser;
@@ -12,11 +12,10 @@ use lilith_render::{
 use lilith_nico::video::{DownloadRequest, YtDlpDownloader};
 use tokio::fs;
 
-pub async fn run(job: Job) -> Result<()> {
+pub async fn run(mut job: Job) -> Result<()> {
     if !job.config.quiet {
         println!("queued job for {}", job.watch_url);
         println!("video id: {}", job.video_id);
-        println!("output: {}", job.paths.output_video.display());
         println!("temp dir: {}", job.paths.temp_dir.display());
         println!("hwaccel: {}", job.config.hwaccel.as_str());
 
@@ -39,11 +38,22 @@ pub async fn run(job: Job) -> Result<()> {
         println!("title: {}", metadata.video.title);
         println!("duration: {}s", metadata.video.duration_seconds);
         println!("comment threads: {}", metadata.comment.threads.len());
+        println!(
+            "output: {}",
+            output_video_path(&job.config.output_dir, &metadata.video.title, job.video_id.as_str())
+                .display()
+        );
 
         if let Some(nv_comment) = &metadata.comment.nv_comment {
             println!("nvcomment server: {}", nv_comment.server);
         }
     }
+
+    job.paths.output_video = output_video_path(
+        &job.config.output_dir,
+        &metadata.video.title,
+        job.video_id.as_str(),
+    );
 
     let raw_comments = api_client
         .fetch_comments(&metadata.comment)
@@ -66,18 +76,6 @@ pub async fn run(job: Job) -> Result<()> {
         println!("comments json: {}", job.paths.comments_json.display());
     }
 
-    let preview_comment_limit = 64_usize;
-    let preview_comments = comments
-        .iter()
-        .take(preview_comment_limit)
-        .map(|comment| RenderComment {
-            text: comment.body.clone(),
-            vpos_ms: comment.vpos_ms,
-            mail: comment.mail.clone(),
-            owner: comment.owner,
-            layer: comment.layer,
-        })
-        .collect::<Vec<_>>();
     let all_render_comments = comments
         .iter()
         .map(|comment| RenderComment {
@@ -104,78 +102,26 @@ pub async fn run(job: Job) -> Result<()> {
 
     if !job.config.quiet {
         println!("downloaded video: {}", downloaded_video.file_path.display());
-        println!("source video: {}x{} @ {}/{} fps", video_info.width, video_info.height, video_info.fps_num, video_info.fps_den);
+        println!(
+            "source video: {}x{} @ {}/{} fps",
+            video_info.width, video_info.height, video_info.fps_num, video_info.fps_den
+        );
     }
 
-    let preview_start_ms = preview_comments.first().map(|comment| comment.vpos_ms).unwrap_or(0);
-    let preview_timestamp = TimestampMs(preview_start_ms);
     let mut render_config = RenderConfig::default();
     render_config.frame_size.width = video_info.width;
     render_config.frame_size.height = video_info.height;
     render_config.medium_font_size = 70.0;
     let mut render_engine = RenderEngine::new(render_config.clone())
         .context("failed to initialize render engine")?;
-    let prepared_preview_comments = render_engine
-        .prepare_comments(&preview_comments)
-        .context("failed to prepare preview comments")?;
     let prepared_all_comments = render_engine
         .prepare_comments(&all_render_comments)
         .context("failed to prepare full comment set")?;
-    let preview_frame = render_engine
-        .render_prepared_frame(
-            &prepared_preview_comments,
-            RenderRequest {
-                timestamp: preview_timestamp,
-                frame_size: render_config.frame_size,
-            },
-        )
-        .context("failed to render preview frame")?;
-    let preview_path = job.paths.temp_dir.join("preview.png");
-    preview_frame
-        .save_png(&preview_path)
-        .with_context(|| format!("failed to write preview png to {}", preview_path.display()))?;
-
-    if !job.config.quiet {
-        println!("preview frame: {}", preview_path.display());
-    }
-
-    let preview_duration_seconds = 1.0_f32;
-    let preview_fps_num = 12_u32;
-    let preview_fps_den = 1_u32;
-    let preview_plan = build_composition_plan(
-        &job,
-        &downloaded_video.file_path,
-        video_info.width,
-        video_info.height,
-        preview_fps_num,
-        preview_fps_den,
-        preview_duration_seconds,
-        job.paths.preview_video.clone(),
-    );
-    let preview_frames = render_rgba_frames(
-        &mut render_engine,
-        &prepared_preview_comments,
-        render_config.frame_size,
-        preview_start_ms,
-        preview_plan.fps_num,
-        preview_plan.fps_den,
-        preview_plan.frame_count,
-    )
-    .context("failed to render preview rgba frames")?;
-
-    write_raw_rgba_file(&job.paths.overlay_rgba, &preview_frames)
-        .await
-        .with_context(|| format!("failed to write overlay frames to {}", job.paths.overlay_rgba.display()))?;
-
     let resolved_encoder = resolve_video_encoder(hardware_accel_mode(job.config.hwaccel))
         .await
         .context("failed to resolve ffmpeg video encoder")?;
 
-    compose_video_from_pipe(&preview_plan, &resolved_encoder.codec_name, &preview_frames)
-        .await
-        .with_context(|| format!("failed to compose preview video {}", job.paths.preview_video.display()))?;
-
-    let final_duration_seconds = video_info.duration_seconds.max(preview_duration_seconds);
+    let final_duration_seconds = video_info.duration_seconds as f32;
     let final_fps_num = video_info.fps_num.max(1);
     let final_fps_den = video_info.fps_den.max(1);
     let final_plan = build_composition_plan(
@@ -199,12 +145,21 @@ pub async fn run(job: Job) -> Result<()> {
         .await
         .with_context(|| format!("failed to compose output video {}", job.paths.output_video.display()))?;
 
+    if !job.config.keep_temp {
+        cleanup_temp_dir(&job.paths.temp_dir)
+            .await
+            .with_context(|| format!("failed to clean temp dir {}", job.paths.temp_dir.display()))?;
+    }
+
     if !job.config.quiet {
-        println!("preview video: {}", job.paths.preview_video.display());
         println!("output video: {}", job.paths.output_video.display());
         println!("encoder: {}", resolved_encoder.codec_name);
         if resolved_encoder.used_fallback {
-            println!("encoder fallback: {} -> {}", job.config.hwaccel.as_str(), resolved_encoder.selected.as_str());
+            println!(
+                "encoder fallback: {} -> {}",
+                job.config.hwaccel.as_str(),
+                resolved_encoder.selected.as_str()
+            );
         }
     }
 
@@ -241,36 +196,6 @@ fn build_composition_plan(
         frame_count,
         duration_seconds: Some(duration_seconds),
     }
-}
-
-fn render_rgba_frames(
-    render_engine: &mut RenderEngine,
-    render_comments: &PreparedCommentSet,
-    frame_size: lilith_render::layout::FrameSize,
-    start_ms: u64,
-    fps_num: u32,
-    fps_den: u32,
-    frame_count: usize,
-) -> Result<Vec<u8>> {
-    let mut rgba_frames = Vec::with_capacity(
-        frame_count * (frame_size.width as usize) * (frame_size.height as usize) * 4,
-    );
-
-    for frame_index in 0..frame_count {
-        let timestamp_ms = start_ms + ((frame_index as u64) * 1_000 * fps_den as u64) / fps_num as u64;
-        let frame = render_engine
-            .render_prepared_frame(
-                render_comments,
-                RenderRequest {
-                    timestamp: TimestampMs(timestamp_ms),
-                    frame_size,
-                },
-            )
-            .with_context(|| format!("failed to render frame {}", frame_index))?;
-        rgba_frames.extend_from_slice(frame.rgba());
-    }
-
-    Ok(rgba_frames)
 }
 
 async fn stream_rendered_video(
@@ -319,6 +244,57 @@ async fn stream_rendered_video(
     composer.finish().await
 }
 
+fn output_video_path(output_dir: &std::path::Path, title: &str, video_id: &str) -> std::path::PathBuf {
+    output_dir.join(format!(
+        "{}[{}][コメ付き].mp4",
+        sanitize_filename(title),
+        video_id
+    ))
+}
+
+fn sanitize_filename(title: &str) -> String {
+    let sanitized = title
+        .chars()
+        .map(|ch| match ch {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            ch if ch.is_control() => '_',
+            _ => ch,
+        })
+        .collect::<String>();
+    let trimmed = sanitized.trim().trim_end_matches(['.', ' ']);
+    let trimmed = trimmed.trim_end_matches('_');
+
+    if trimmed.is_empty() {
+        "video".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+async fn cleanup_temp_dir(temp_dir: &std::path::Path) -> Result<()> {
+    match fs::remove_dir_all(temp_dir).await {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    }
+
+    if let Some(parent) = temp_dir.parent() {
+        match fs::remove_dir(parent).await {
+            Ok(()) => {}
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound
+                        | std::io::ErrorKind::DirectoryNotEmpty
+                        | std::io::ErrorKind::Other
+                ) => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+
+    Ok(())
+}
+
 fn hardware_accel_mode(mode: lilith_core::HardwareAccel) -> HardwareAccelMode {
     match mode {
         lilith_core::HardwareAccel::Auto => HardwareAccelMode::Auto,
@@ -353,7 +329,7 @@ mod tests {
 
     use lilith_core::{job::JobPaths, AppConfig, HardwareAccel, Job};
 
-    use super::{build_composition_plan, hardware_accel_mode};
+    use super::{build_composition_plan, hardware_accel_mode, output_video_path, sanitize_filename};
 
     #[test]
     fn builds_expected_frame_count() {
@@ -379,6 +355,18 @@ mod tests {
         assert_eq!(hardware_accel_mode(HardwareAccel::VideoToolbox), lilith_ffmpeg::HardwareAccelMode::VideoToolbox);
     }
 
+    #[test]
+    fn builds_title_based_output_path() {
+        let path = output_video_path(std::path::Path::new("."), "a:b/c", "sm9");
+
+        assert_eq!(path, PathBuf::from("./a_b_c[sm9][コメ付き].mp4"));
+    }
+
+    #[test]
+    fn sanitizes_invalid_filename_characters() {
+        assert_eq!(sanitize_filename(" test<>:\\|?*./ "), "test_______.");
+    }
+
     fn fake_job() -> Job {
         Job {
             watch_url: "https://www.nicovideo.jp/watch/sm9".to_string(),
@@ -392,7 +380,6 @@ mod tests {
                 source_video: PathBuf::from("tmp/source.mp4"),
                 comments_json: PathBuf::from("tmp/comments.json"),
                 overlay_rgba: PathBuf::from("tmp/overlay.rgba"),
-                preview_video: PathBuf::from("tmp/preview.mp4"),
                 output_video: PathBuf::from("tmp/out.mp4"),
             },
         }
