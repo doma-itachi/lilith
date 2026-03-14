@@ -1,0 +1,168 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: Verify tag and version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.metadata.outputs.tag }}
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate tag matches Cargo version
+        id: metadata
+        run: |
+          python <<'PY'
+          import os
+          import pathlib
+          import tomllib
+
+          cargo_toml = pathlib.Path("Cargo.toml")
+          cargo = tomllib.loads(cargo_toml.read_text(encoding="utf-8"))
+          version = cargo["workspace"]["package"]["version"]
+          tag = os.environ["GITHUB_REF_NAME"]
+          expected_tag = f"v{version}"
+
+          if tag != expected_tag:
+              raise SystemExit(
+                  f"tag {tag} does not match workspace.package.version {version} "
+                  f"(expected {expected_tag})"
+              )
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"tag={tag}", file=output)
+              print(f"version={version}", file=output)
+          PY
+
+  build:
+    name: Build ${{ matrix.label }}
+    needs: verify
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows x86_64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: lilith.exe
+            archive_suffix: windows-x86_64
+          - label: macOS aarch64
+            runner: macos-14
+            target: aarch64-apple-darwin
+            binary: lilith
+            archive_suffix: macos-aarch64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Run workspace tests
+        run: cargo test --workspace --locked --target ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --locked -p lilith-cli --bin lilith --target ${{ matrix.target }}
+
+      - name: Package release archive
+        id: package
+        env:
+          ARCHIVE_PATH: dist/lilith-${{ needs.verify.outputs.tag }}-${{ matrix.archive_suffix }}.zip
+          BINARY_PATH: target/${{ matrix.target }}/release/${{ matrix.binary }}
+        run: |
+          mkdir -p dist
+          python <<'PY'
+          import os
+          import zipfile
+          from pathlib import Path
+
+          archive = Path(os.environ["ARCHIVE_PATH"])
+          binary = Path(os.environ["BINARY_PATH"])
+          files = [binary, Path("LICENSE"), Path("README.md")]
+
+          with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+              for path in files:
+                  bundle.write(path, arcname=path.name)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"archive={archive.as_posix()}", file=output)
+          PY
+
+      - name: Upload packaged archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.archive_suffix }}
+          path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub release
+    needs:
+      - verify
+      - build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download packaged archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Lilith ${{ needs.verify.outputs.tag }}
+          tag_name: ${{ needs.verify.outputs.tag }}
+          prerelease: ${{ contains(needs.verify.outputs.version, '-') }}
+          fail_on_unmatched_files: true
+          files: dist/*.zip
+          body: |
+            ## Downloads
+            - `lilith-${{ needs.verify.outputs.tag }}-windows-x86_64.zip`
+            - `lilith-${{ needs.verify.outputs.tag }}-macos-aarch64.zip`
+
+            ## Requirements
+            - `yt-dlp` must be installed and available on `PATH`
+            - `ffmpeg` and `ffprobe` must be installed and available on `PATH`
+
+            ## Notes
+            - The bundled executable includes Lilith's fallback font assets.
+            - macOS builds target Apple Silicon (`aarch64`) only.
