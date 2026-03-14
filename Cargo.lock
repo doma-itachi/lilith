@@ -735,7 +735,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "lilith-cli"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "clap",
@@ -749,7 +749,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-core"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "thiserror",
  "url",
@@ -757,7 +757,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-ffmpeg"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "serde",
@@ -769,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-nico"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "reqwest",
  "serde",
@@ -781,7 +781,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-render"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "cosmic-text",
  "thiserror",
