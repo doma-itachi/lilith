@@ -1,13 +1,15 @@
+<img width="1383" height="412" alt="Image" src="https://github.com/user-attachments/assets/ec9b19e6-e451-4a20-9c01-e24f4f38dc78" />
+
 # Lilith
+LilithはRust製の高速コメ付きダウンローダです  
+ニコニコ動画の動画をコメ付きでダウンロードできます
 
-Lilith is a Rust workspace for a fast NicoNico downloader that fetches a source video, collects comments, renders them, and produces a comment-overlaid mp4.
+## 著者
+doma-itachi @itachi_yukari
 
-## Current status
-
-- Phase 0 workspace scaffold is in place.
-- Phase 1 CLI parsing and job bootstrap are implemented.
-- Phase 3 `yt-dlp` download wrapper and Phase 4 watch metadata fetch are in place.
-- Comment fetch, renderer, and ffmpeg integration are still scaffold crates.
+## ライセンス
+Copyright (c) 2026 doma-itachi
+このプロジェクトはMITライセンスの下で公開されています
 
 ## Workspace
 
