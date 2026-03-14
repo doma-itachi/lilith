@@ -17,7 +17,6 @@ LilithはRust製の高速コメ付きダウンローダです
 
 - **バグ報告・機能要望**: リポジトリの Issues からお願いします
 - **プルリクエスト**: 修正や機能追加は PR で送ってください。大きな変更の場合は先に Issue で相談するとスムーズです
-- **開発の始め方**: 下記の [Project Setup](#project-setup) に従って環境を用意し、`bun run dev` で動作確認できます
 
 ## 著者
 doma-itachi @itachi_yukari
