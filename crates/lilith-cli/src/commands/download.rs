@@ -10,6 +10,7 @@ use lilith_render::{
     PreparedCommentSet, RenderComment, RenderConfig, RenderEngine, RenderRequest, TimestampMs,
 };
 use lilith_nico::video::{DownloadRequest, YtDlpDownloader};
+use std::time::Instant;
 use tokio::fs;
 
 pub async fn run(mut job: Job) -> Result<()> {
@@ -212,6 +213,7 @@ async fn stream_rendered_video(
     let progress_step = (plan.frame_count / 20).max(1);
     let mut stderr = std::io::stderr().lock();
     let mut sequence = render_comments.sequence();
+    let started_at = Instant::now();
 
     for frame_index in 0..plan.frame_count {
         let timestamp_ms = start_ms + ((frame_index as u64) * 1_000 * plan.fps_den as u64) / plan.fps_num as u64;
@@ -231,17 +233,61 @@ async fn stream_rendered_video(
 
         if frame_index % progress_step == 0 || frame_index + 1 == plan.frame_count {
             use std::io::Write as _;
-            let _ = writeln!(
+            let _ = write!(
                 stderr,
-                "rendering {}: {}/{} frames",
+                "\rrendering {}: {}",
                 plan.output_video.display(),
-                frame_index + 1,
-                plan.frame_count
+                format_render_progress(frame_index + 1, plan.frame_count, started_at.elapsed())
             );
+            let _ = stderr.flush();
         }
     }
 
+    {
+        use std::io::Write as _;
+        let _ = writeln!(stderr);
+        let _ = stderr.flush();
+    }
+
     composer.finish().await
+}
+
+fn format_render_progress(processed_frames: usize, total_frames: usize, elapsed: std::time::Duration) -> String {
+    let eta = estimate_eta(processed_frames, total_frames, elapsed);
+    format!(
+        "{}/{} frames eta {}",
+        processed_frames,
+        total_frames,
+        format_duration(eta)
+    )
+}
+
+fn estimate_eta(
+    processed_frames: usize,
+    total_frames: usize,
+    elapsed: std::time::Duration,
+) -> std::time::Duration {
+    if processed_frames == 0 || processed_frames >= total_frames {
+        return std::time::Duration::ZERO;
+    }
+
+    let remaining_frames = (total_frames - processed_frames) as f64;
+    let per_frame = elapsed.as_secs_f64() / processed_frames as f64;
+
+    std::time::Duration::from_secs_f64((remaining_frames * per_frame).max(0.0))
+}
+
+fn format_duration(duration: std::time::Duration) -> String {
+    let total_seconds = duration.as_secs();
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+
+    if hours > 0 {
+        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+    } else {
+        format!("{:02}:{:02}", minutes, seconds)
+    }
 }
 
 fn output_video_path(output_dir: &std::path::Path, title: &str, video_id: &str) -> std::path::PathBuf {
@@ -329,7 +375,10 @@ mod tests {
 
     use lilith_core::{job::JobPaths, AppConfig, HardwareAccel, Job};
 
-    use super::{build_composition_plan, hardware_accel_mode, output_video_path, sanitize_filename};
+    use super::{
+        build_composition_plan, estimate_eta, format_duration, format_render_progress,
+        hardware_accel_mode, output_video_path, sanitize_filename,
+    };
 
     #[test]
     fn builds_expected_frame_count() {
@@ -365,6 +414,26 @@ mod tests {
     #[test]
     fn sanitizes_invalid_filename_characters() {
         assert_eq!(sanitize_filename(" test<>:\\|?*./ "), "test_______.");
+    }
+
+    #[test]
+    fn formats_render_progress_with_eta() {
+        let progress = format_render_progress(50, 100, std::time::Duration::from_secs(10));
+
+        assert_eq!(progress, "50/100 frames eta 00:10");
+    }
+
+    #[test]
+    fn formats_duration_compactly() {
+        assert_eq!(format_duration(std::time::Duration::from_secs(65)), "01:05");
+        assert_eq!(format_duration(std::time::Duration::from_secs(3661)), "01:01:01");
+    }
+
+    #[test]
+    fn estimates_eta_from_average_frame_time() {
+        let eta = estimate_eta(25, 100, std::time::Duration::from_secs(5));
+
+        assert_eq!(eta.as_secs(), 15);
     }
 
     fn fake_job() -> Job {
