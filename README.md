@@ -1,16 +1,57 @@
 ![Logo](https://github.com/user-attachments/assets/db00f98b-30f8-4d18-a6d4-9a8577ab229d)
 
 # Lilith
-LilithはRust製の高速コメ付きダウンローダです  
+LilithはRust製の高速コメ付きダウンローダです\
 ニコニコ動画の動画をコメ付きでダウンロードできます
 
+Windows/macOSに対応
+(コメントはmacOSではヒラギノ角ゴ、WindowsではNoto Sansでレンダリングされます)
+
 ## サンプル
+<details>
+<summary>
+【マリオ64実況】　奴が来る　壱【幕末志士】(sm5457137)
+</summary>
+
 [【マリオ64実況】　奴が来る　壱【幕末志士】(sm5457137)](https://www.nicovideo.jp/watch/sm5457137)
 <video src="https://github.com/user-attachments/assets/025e9c08-ac0f-4892-bc98-5f9a3efa766e" controls="true"></video>
+</details>
+
+<details>
+<summary>
+利息回収前夜(sm38495149)
+</summary>
 
 [利息回収前夜(sm38495149)](https://www.nicovideo.jp/watch/sm38495149)
 <video src="https://github.com/user-attachments/assets/29642235-949b-463c-9f62-db72e376fc48" controls="true"></video>
+</details>
 
+## 導入方法
+### 前提条件
+yt-dlpとffmpeg(+ffprobe)のインストールが必要です\
+また、パスが通っている必要があります
+
+> [!TIP]
+> 以下のコマンドでインストール済みか確認できます\
+> バージョンが表示されればインストール済みです
+> - `yt-dlp -v`
+> - `ffmpeg -version`
+> - `ffprobe -version`
+
+### インストール
+1. [リリース](https://github.com/doma-itachi/lilith/releases/latest)からWindowsであれば`lilith-vx.x.x-windows-x86_64.zip`、macOSであれば`lilith-vx.x.x-macos-aarch64.zip`をダウンロードします
+
+2. 適当なフォルダに解凍し、環境変数を設定してパスを通します
+
+3. `lilith -V`でバージョンが表示されれば成功です
+
+### 利用する
+ダウンロードしたいURLをコピーし、コマンドラインで`lilith https://nicovideo...`のようにして実行するとダウンロードが開始されます
+
+> [!IMPORTANT]
+> コメントのレンダリングにはmacOSであれば`ヒラギノ角ゴ`\
+> それ以外の環境であればバンドルされている`Noto Sans JP`が使用されます\
+> （フォントにほぼ違いはない）
 
 ## 貢献
 貢献を歓迎します
@@ -22,7 +63,7 @@ LilithはRust製の高速コメ付きダウンローダです
 doma-itachi @itachi_yukari
 
 ## ライセンス
-Copyright (c) 2026 doma-itachi
+Copyright (c) 2026 doma-itachi\
 このプロジェクトはMITライセンスの下で公開されています
 
 ## Workspace
