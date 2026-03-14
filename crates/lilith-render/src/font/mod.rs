@@ -13,6 +13,11 @@ const BUNDLED_NOTO_SANS_JP: &[u8] = include_bytes!(concat!(
     "/../../assets/fonts/NotoSansJP-VariableFont_wght.ttf"
 ));
 const BUNDLED_NOTO_SANS_JP_FAMILY: &str = "Noto Sans JP";
+const MACOS_PREFERRED_FAMILIES: &[&str] = &[
+    "Hiragino Sans",
+    "Hiragino Kaku Gothic ProN",
+    "Hiragino Kaku Gothic Pro",
+];
 
 #[derive(Debug, Clone)]
 pub struct FontCatalog {
@@ -24,7 +29,7 @@ pub struct FontCatalog {
 impl Default for FontCatalog {
     fn default() -> Self {
         Self {
-            default_family: BUNDLED_NOTO_SANS_JP_FAMILY.to_string(),
+            default_family: preferred_default_family().to_string(),
             default_weight: Weight::SEMIBOLD,
             custom_font: None,
         }
@@ -51,11 +56,10 @@ impl FontContext {
         font_system
             .db_mut()
             .load_font_data(BUNDLED_NOTO_SANS_JP.to_vec());
-
-        let family_name = if let Some(custom_font) = catalog.custom_font {
+        let default_family = if let Some(custom_font) = &catalog.custom_font {
             font_system
                 .db_mut()
-                .load_font_file(&custom_font)
+                .load_font_file(custom_font)
                 .map_err(|error| RenderError::FontLoad {
                     path: custom_font.clone(),
                     message: error.to_string(),
@@ -66,14 +70,17 @@ impl FontContext {
                 .and_then(|stem| stem.to_str())
                 .unwrap_or(&catalog.default_family)
                 .to_string()
+        } else if is_macos() {
+            pick_first_available_family(font_system.db_mut(), MACOS_PREFERRED_FAMILIES)
+                .unwrap_or_else(|| catalog.default_family.clone())
         } else {
-            catalog.default_family
+            catalog.default_family.clone()
         };
 
         Ok(Self {
             font_system,
             swash_cache: SwashCache::new(),
-            family: family_owned(&family_name),
+            family: family_owned(&default_family),
             weight: catalog.default_weight,
         })
     }
@@ -214,4 +221,32 @@ fn family_owned(name: &str) -> FamilyOwned {
         "serif" => FamilyOwned::new(Family::Serif),
         family => FamilyOwned::new(Family::Name(family)),
     }
+}
+
+fn preferred_default_family() -> &'static str {
+    if is_macos() {
+        MACOS_PREFERRED_FAMILIES[0]
+    } else {
+        BUNDLED_NOTO_SANS_JP_FAMILY
+    }
+}
+
+fn pick_first_available_family(
+    db: &mut cosmic_text::fontdb::Database,
+    families: &[&str],
+) -> Option<String> {
+    for family in families {
+        if db
+            .faces()
+            .any(|face| face.families.iter().any(|entry| entry.0 == *family))
+        {
+            return Some((*family).to_string());
+        }
+    }
+
+    None
+}
+
+const fn is_macos() -> bool {
+    cfg!(target_os = "macos")
 }
