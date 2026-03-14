@@ -63,4 +63,6 @@ cargo run -p lilith-cli --bin lilith -- --help
 
 - Output defaults to `output/`.
 - Temporary job files are planned under `output/.lilith/<video_id>/`.
+- The renderer bundles `assets/fonts/NotoSansJP-VariableFont_wght.ttf` into the binary and uses `Noto Sans JP` by default across platforms.
+- `--font` still works as an override when you want to force a different local font.
 - `vendor/niconicomments/.git/` is ignored so the vendored reference can stay in-tree without nested repository noise.

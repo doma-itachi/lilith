@@ -8,6 +8,12 @@ use tiny_skia::{Paint, Pixmap, Rect, Transform};
 
 use crate::engine::RenderError;
 
+const BUNDLED_NOTO_SANS_JP: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/fonts/NotoSansJP-VariableFont_wght.ttf"
+));
+const BUNDLED_NOTO_SANS_JP_FAMILY: &str = "Noto Sans JP";
+
 #[derive(Debug, Clone)]
 pub struct FontCatalog {
     pub default_family: String,
@@ -18,7 +24,7 @@ pub struct FontCatalog {
 impl Default for FontCatalog {
     fn default() -> Self {
         Self {
-            default_family: default_font_family().to_string(),
+            default_family: BUNDLED_NOTO_SANS_JP_FAMILY.to_string(),
             default_weight: Weight::SEMIBOLD,
             custom_font: None,
         }
@@ -42,6 +48,10 @@ pub struct FontContext {
 impl FontContext {
     pub fn new(catalog: FontCatalog) -> Result<Self, RenderError> {
         let mut font_system = FontSystem::new();
+        font_system
+            .db_mut()
+            .load_font_data(BUNDLED_NOTO_SANS_JP.to_vec());
+
         let family_name = if let Some(custom_font) = catalog.custom_font {
             font_system
                 .db_mut()
@@ -203,29 +213,5 @@ fn family_owned(name: &str) -> FamilyOwned {
         "sans-serif" => FamilyOwned::new(Family::SansSerif),
         "serif" => FamilyOwned::new(Family::Serif),
         family => FamilyOwned::new(Family::Name(family)),
-    }
-}
-
-const fn default_font_family() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "MS PGothic"
-    } else {
-        "Hiragino Sans"
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::FontCatalog;
-
-    #[test]
-    fn picks_platform_default_font_family() {
-        let catalog = FontCatalog::default();
-
-        if cfg!(target_os = "windows") {
-            assert_eq!(catalog.default_family, "MS PGothic");
-        } else {
-            assert_eq!(catalog.default_family, "Hiragino Sans");
-        }
     }
 }
