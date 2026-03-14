@@ -18,7 +18,7 @@ pub struct FontCatalog {
 impl Default for FontCatalog {
     fn default() -> Self {
         Self {
-            default_family: "Hiragino Sans".to_string(),
+            default_family: default_font_family().to_string(),
             default_weight: Weight::SEMIBOLD,
             custom_font: None,
         }
@@ -203,5 +203,29 @@ fn family_owned(name: &str) -> FamilyOwned {
         "sans-serif" => FamilyOwned::new(Family::SansSerif),
         "serif" => FamilyOwned::new(Family::Serif),
         family => FamilyOwned::new(Family::Name(family)),
+    }
+}
+
+const fn default_font_family() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "MS PGothic"
+    } else {
+        "Hiragino Sans"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FontCatalog;
+
+    #[test]
+    fn picks_platform_default_font_family() {
+        let catalog = FontCatalog::default();
+
+        if cfg!(target_os = "windows") {
+            assert_eq!(catalog.default_family, "MS PGothic");
+        } else {
+            assert_eq!(catalog.default_family, "Hiragino Sans");
+        }
     }
 }
