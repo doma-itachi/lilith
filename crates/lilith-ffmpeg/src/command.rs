@@ -307,8 +307,10 @@ struct RawFfprobeStream {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::{fs::Permissions, os::unix::fs::PermissionsExt};
 
+    #[cfg(unix)]
     use tempfile::tempdir;
 
     use super::{
@@ -353,6 +355,7 @@ mod tests {
         assert_eq!(encoders, vec!["libx264", "h264_videotoolbox"]);
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn probes_video_from_fake_ffprobe() {
         let temp_dir = tempdir().unwrap();
