@@ -5,6 +5,9 @@ mod commands;
 async fn main() {
     if let Err(error) = cli::run(std::env::args()).await {
         eprintln!("error: {error}");
+        for cause in error.chain().skip(1) {
+            eprintln!("caused by: {cause}");
+        }
         std::process::exit(1);
     }
 }

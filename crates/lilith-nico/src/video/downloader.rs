@@ -236,13 +236,9 @@ fn is_temporary_file(path: &Path) -> bool {
 
 fn resolve_binary(binary: &Path) -> Result<PathBuf, DownloadError> {
     if is_explicit_path(binary) {
-        return if binary.exists() {
-            Ok(binary.to_path_buf())
-        } else {
-            Err(DownloadError::BinaryNotFound {
-                binary: binary.display().to_string(),
-            })
-        };
+        return find_binary_candidate(binary).ok_or_else(|| DownloadError::BinaryNotFound {
+            binary: binary.display().to_string(),
+        });
     }
 
     let Some(path) = env::var_os("PATH") else {
@@ -253,7 +249,7 @@ fn resolve_binary(binary: &Path) -> Result<PathBuf, DownloadError> {
 
     for entry in env::split_paths(&path) {
         let candidate = entry.join(binary);
-        if candidate.exists() {
+        if let Some(candidate) = find_binary_candidate(&candidate) {
             return Ok(candidate);
         }
     }
@@ -265,6 +261,50 @@ fn resolve_binary(binary: &Path) -> Result<PathBuf, DownloadError> {
 
 fn is_explicit_path(path: &Path) -> bool {
     path.is_absolute() || path.components().count() > 1
+}
+
+fn find_binary_candidate(path: &Path) -> Option<PathBuf> {
+    if path.exists() {
+        return Some(path.to_path_buf());
+    }
+
+    #[cfg(windows)]
+    {
+        if path.extension().is_none() {
+            for extension in windows_path_extensions() {
+                let mut candidate = path.as_os_str().to_os_string();
+                candidate.push(extension);
+                let candidate = PathBuf::from(candidate);
+                if candidate.exists() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+#[cfg(windows)]
+fn windows_path_extensions() -> Vec<String> {
+    env::var("PATHEXT")
+        .ok()
+        .map(|extensions| {
+            extensions
+                .split(';')
+                .filter(|extension| !extension.is_empty())
+                .map(|extension| extension.to_string())
+                .collect::<Vec<_>>()
+        })
+        .filter(|extensions| !extensions.is_empty())
+        .unwrap_or_else(|| {
+            vec![
+                ".COM".to_string(),
+                ".EXE".to_string(),
+                ".BAT".to_string(),
+                ".CMD".to_string(),
+            ]
+        })
 }
 
 #[cfg(test)]
@@ -364,5 +404,67 @@ printf 'merged\n' >&2
         std::fs::write(&path, contents.into()).unwrap();
         std::fs::set_permissions(&path, Permissions::from_mode(0o755)).unwrap();
         path
+    }
+}
+
+#[cfg(test)]
+#[cfg(windows)]
+mod windows_tests {
+    use std::sync::{LazyLock, Mutex};
+
+    use tempfile::tempdir;
+
+    use super::*;
+
+    static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    #[test]
+    fn resolves_binary_from_pathext() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp_dir = tempdir().unwrap();
+        let executable = temp_dir.path().join("yt-dlp.exe");
+        std::fs::write(&executable, b"").unwrap();
+
+        let previous_path = env::var_os("PATH");
+        let previous_pathext = env::var_os("PATHEXT");
+
+        unsafe {
+            env::set_var("PATH", temp_dir.path());
+            env::set_var("PATHEXT", ".EXE;.CMD");
+        }
+
+        let resolved = resolve_binary(Path::new("yt-dlp")).unwrap();
+
+        unsafe {
+            match previous_path {
+                Some(path) => env::set_var("PATH", path),
+                None => env::remove_var("PATH"),
+            }
+            match previous_pathext {
+                Some(path_ext) => env::set_var("PATHEXT", path_ext),
+                None => env::remove_var("PATHEXT"),
+            }
+        }
+
+        assert_eq!(resolved.parent(), executable.parent());
+        assert_eq!(
+            resolved.file_name().and_then(|name| name.to_str()).unwrap().to_ascii_lowercase(),
+            executable.file_name().and_then(|name| name.to_str()).unwrap().to_ascii_lowercase()
+        );
+    }
+
+    #[test]
+    fn resolves_explicit_binary_path_with_windows_extension() {
+        let temp_dir = tempdir().unwrap();
+        let executable = temp_dir.path().join("yt-dlp.exe");
+        std::fs::write(&executable, b"").unwrap();
+
+        let resolved = resolve_binary(&temp_dir.path().join("yt-dlp")).unwrap();
+
+        assert_eq!(resolved.parent(), executable.parent());
+        assert_eq!(
+            resolved.file_name().and_then(|name| name.to_str()).unwrap().to_ascii_lowercase(),
+            executable.file_name().and_then(|name| name.to_str()).unwrap().to_ascii_lowercase()
+        );
     }
 }
