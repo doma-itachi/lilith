@@ -1569,7 +1569,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1585,7 +1585,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "thiserror",
  "url",
@@ -1593,7 +1593,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-ffmpeg"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -1605,7 +1605,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-nico"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "reqwest",
  "rookie",
@@ -1618,7 +1618,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-render"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cosmic-text",
  "thiserror",
