@@ -1,4 +1,6 @@
-![Logo](https://github.com/user-attachments/assets/db00f98b-30f8-4d18-a6d4-9a8577ab229d)
+<p align="center">
+    <img src="https://github.com/user-attachments/assets/a94e2198-4a6e-4b9c-835b-4317fe38d34c" alt="Description" width="700">
+</p>
 
 # Lilith
 LilithはRust製の高速コメ付きダウンローダです\
