@@ -14,5 +14,6 @@ lilith-core.workspace = true
 lilith-ffmpeg.workspace = true
 lilith-nico.workspace = true
 lilith-render.workspace = true
+reqwest.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

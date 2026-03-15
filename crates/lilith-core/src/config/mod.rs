@@ -29,6 +29,7 @@ pub struct AppConfig {
     pub output_dir: PathBuf,
     pub keep_temp: bool,
     pub hwaccel: HardwareAccel,
+    pub cookies_from_browser: Option<String>,
     pub font: Option<PathBuf>,
     pub quiet: bool,
 }
@@ -39,6 +40,7 @@ impl Default for AppConfig {
             output_dir: PathBuf::from("."),
             keep_temp: false,
             hwaccel: HardwareAccel::Auto,
+            cookies_from_browser: None,
             font: None,
             quiet: false,
         }

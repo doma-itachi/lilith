@@ -21,6 +21,7 @@ lilith-nico = { path = "crates/lilith-nico" }
 lilith-render = { path = "crates/lilith-render" }
 lilith-ffmpeg = { path = "crates/lilith-ffmpeg" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rookie = "0.5.6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"

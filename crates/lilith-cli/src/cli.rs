@@ -30,6 +30,9 @@ struct Cli {
     #[arg(long, value_enum, default_value_t = HwaccelArg::Auto)]
     hwaccel: HwaccelArg,
 
+    #[arg(long, value_name = "BROWSER[+KEYRING][:PROFILE][::CONTAINER]")]
+    cookies_from_browser: Option<String>,
+
     #[arg(long, value_name = "FONT")]
     font: Option<PathBuf>,
 
@@ -85,6 +88,7 @@ fn config_from_cli(cli: &Cli) -> AppConfig {
         output_dir: cli.output_dir.clone(),
         keep_temp: cli.keep_temp,
         hwaccel: cli.hwaccel.into(),
+        cookies_from_browser: cli.cookies_from_browser.clone(),
         font: cli.font.clone(),
         quiet: cli.quiet,
     }
@@ -107,6 +111,8 @@ mod tests {
             "--keep-temp",
             "--hwaccel",
             "videotoolbox",
+            "--cookies-from-browser",
+            "chrome:Default",
             "--font",
             "assets/fonts/default.ttf",
             "--quiet",
@@ -116,6 +122,7 @@ mod tests {
         assert_eq!(cli.output_dir, PathBuf::from("dist"));
         assert!(cli.keep_temp);
         assert!(cli.quiet);
+        assert_eq!(cli.cookies_from_browser.as_deref(), Some("chrome:Default"));
         assert_eq!(cli.font, Some(PathBuf::from("assets/fonts/default.ttf")));
     }
 }

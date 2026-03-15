@@ -5,6 +5,7 @@ use lilith_ffmpeg::{
     HardwareAccelMode,
 };
 use lilith_nico::api::NicoApiClient;
+use lilith_nico::cookies::load_browser_cookies;
 use lilith_nico::parser;
 use lilith_render::{
     PreparedCommentSet, RenderComment, RenderConfig, RenderEngine, RenderRequest, TimestampMs,
@@ -29,7 +30,14 @@ pub async fn run(mut job: Job) -> Result<()> {
         }
     }
 
-    let api_client = NicoApiClient::default();
+    let browser_cookies = job
+        .config
+        .cookies_from_browser
+        .as_deref()
+        .map(load_browser_cookies)
+        .transpose()
+        .context("failed to load cookies from browser")?;
+    let api_client = NicoApiClient::new(client_with_optional_cookies(browser_cookies.as_ref())?);
     let metadata = api_client
         .fetch_watch_metadata(&job.watch_url)
         .await
@@ -92,6 +100,7 @@ pub async fn run(mut job: Job) -> Result<()> {
         watch_url: job.watch_url.clone(),
         output_dir: job.paths.temp_dir.clone(),
         output_template: job.paths.source_download_template(),
+        cookies_from_browser: job.config.cookies_from_browser.clone(),
     };
     let downloaded_video = downloader
         .download(&request)
@@ -352,6 +361,35 @@ fn hardware_accel_mode(mode: lilith_core::HardwareAccel) -> HardwareAccelMode {
     }
 }
 
+fn client_with_optional_cookies(
+    cookies: Option<&lilith_nico::cookies::BrowserCookies>,
+) -> Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder().user_agent(format!("lilith/{}", env!("CARGO_PKG_VERSION")));
+
+    if let Some(headers) = cookie_headers(cookies)? {
+        builder = builder.default_headers(headers);
+    }
+
+    builder.build().context("failed to build reqwest client")
+}
+
+fn cookie_headers(
+    cookies: Option<&lilith_nico::cookies::BrowserCookies>,
+) -> Result<Option<reqwest::header::HeaderMap>> {
+    let Some(cookies) = cookies else {
+        return Ok(None);
+    };
+
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::COOKIE,
+        reqwest::header::HeaderValue::from_str(&cookies.header_value)
+            .context("invalid cookie header value")?,
+    );
+
+    Ok(Some(headers))
+}
+
 trait HardwareAccelModeExt {
     fn as_str(self) -> &'static str;
 }
@@ -376,8 +414,8 @@ mod tests {
     use lilith_core::{job::JobPaths, AppConfig, HardwareAccel, Job};
 
     use super::{
-        build_composition_plan, estimate_eta, format_duration, format_render_progress,
-        hardware_accel_mode, output_video_path, sanitize_filename,
+        build_composition_plan, cookie_headers, estimate_eta, format_duration,
+        format_render_progress, hardware_accel_mode, output_video_path, sanitize_filename,
     };
 
     #[test]
@@ -434,6 +472,21 @@ mod tests {
         let eta = estimate_eta(25, 100, std::time::Duration::from_secs(5));
 
         assert_eq!(eta.as_secs(), 15);
+    }
+
+    #[test]
+    fn builds_cookie_header() {
+        let headers = cookie_headers(Some(&lilith_nico::cookies::BrowserCookies {
+            source: "chrome".to_string(),
+            header_value: "user_session=abc".to_string(),
+            yt_dlp_argument: "chrome".to_string(),
+        }))
+        .unwrap();
+
+        assert_eq!(
+            headers.unwrap().get(reqwest::header::COOKIE).unwrap(),
+            "user_session=abc"
+        );
     }
 
     fn fake_job() -> Job {

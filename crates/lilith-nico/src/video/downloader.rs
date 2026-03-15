@@ -14,6 +14,7 @@ pub struct DownloadRequest {
     pub watch_url: String,
     pub output_dir: PathBuf,
     pub output_template: PathBuf,
+    pub cookies_from_browser: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,6 +115,7 @@ impl YtDlpDownloader {
             .arg("mp4")
             .arg("-o")
             .arg(&request.output_template)
+            .args(cookies_from_browser_args(request.cookies_from_browser.as_deref()))
             .arg(&request.watch_url)
             .output()
             .await?;
@@ -137,6 +139,13 @@ impl YtDlpDownloader {
             stderr,
             attempts: 1,
         })
+    }
+}
+
+fn cookies_from_browser_args(spec: Option<&str>) -> Vec<String> {
+    match spec {
+        Some(spec) => vec!["--cookies-from-browser".to_string(), spec.to_string()],
+        None => Vec::new(),
     }
 }
 
@@ -324,6 +333,7 @@ mod tests {
             watch_url: "https://www.nicovideo.jp/watch/sm9".to_string(),
             output_dir: temp_dir.path().join("job"),
             output_template: temp_dir.path().join("job/source.%(ext)s"),
+            cookies_from_browser: None,
         };
 
         let error = downloader.download(&request).await.unwrap_err();
@@ -362,6 +372,7 @@ printf 'merged\n' >&2
             watch_url: "https://www.nicovideo.jp/watch/sm9".to_string(),
             output_dir: temp_dir.path().join("job"),
             output_template: temp_dir.path().join("job/source.%(ext)s"),
+            cookies_from_browser: None,
         };
         let downloader = YtDlpDownloader::new(script);
 
@@ -388,6 +399,7 @@ printf 'merged\n' >&2
             watch_url: "https://www.nicovideo.jp/watch/sm9".to_string(),
             output_dir: temp_dir.path().join("job"),
             output_template: temp_dir.path().join("job/source.%(ext)s"),
+            cookies_from_browser: None,
         };
         let downloader = YtDlpDownloader::new(script).with_retry_policy(RetryPolicy {
             max_retries: 1,

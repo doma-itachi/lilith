@@ -203,7 +203,7 @@ pub enum NicoApiError {
     #[error("request to NicoNico failed: {0}")]
     Request(#[from] reqwest::Error),
 
-    #[error("this video appears to be sensitive or login-restricted; please sign in with NicoNico and try again: {watch_url}")]
+    #[error("this video appears to be sensitive or login-restricted; please sign in with NicoNico and try again: {watch_url}. If you already have a browser session, try `--cookies-from-browser chrome` (or your browser name).")]
     SensitiveVideo { watch_url: String },
 
     #[error("failed to fetch watch metadata: HTTP {status} {code}")]
