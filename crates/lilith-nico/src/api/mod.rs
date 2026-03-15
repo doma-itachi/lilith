@@ -42,14 +42,13 @@ impl NicoApiClient {
             .map_err(|_| NicoApiError::InvalidWatchUrl(watch_url.to_string()))?;
         request_url.query_pairs_mut().append_pair("responseType", "json");
 
-        let body = self
-            .http
-            .get(request_url)
-            .send()
-            .await?
-            .error_for_status()?
-            .text()
-            .await?;
+        let response = self.http.get(request_url).send().await?;
+        let status = response.status();
+        let body = response.text().await?;
+
+        if !status.is_success() {
+            return Err(classify_watch_error(status, &body, watch_url));
+        }
 
         Self::parse_watch_metadata(&body)
     }
@@ -204,6 +203,12 @@ pub enum NicoApiError {
     #[error("request to NicoNico failed: {0}")]
     Request(#[from] reqwest::Error),
 
+    #[error("this video appears to be sensitive or login-restricted; please sign in with NicoNico and try again: {watch_url}")]
+    SensitiveVideo { watch_url: String },
+
+    #[error("failed to fetch watch metadata: HTTP {status} {code}")]
+    WatchRequestFailed { status: u16, code: String },
+
     #[error("failed to parse watch metadata response: {0}")]
     Parse(#[from] serde_json::Error),
 
@@ -217,6 +222,36 @@ fn empty_to_none(value: String) -> Option<String> {
     } else {
         Some(value)
     }
+}
+
+fn classify_watch_error(status: reqwest::StatusCode, body: &str, watch_url: &str) -> NicoApiError {
+    if let Ok(error_body) = serde_json::from_str::<WatchErrorEnvelope>(body) {
+        if status == reqwest::StatusCode::BAD_REQUEST && error_body.meta.code == "FORBIDDEN" {
+            return NicoApiError::SensitiveVideo {
+                watch_url: watch_url.to_string(),
+            };
+        }
+
+        return NicoApiError::WatchRequestFailed {
+            status: status.as_u16(),
+            code: error_body.meta.code,
+        };
+    }
+
+    NicoApiError::WatchRequestFailed {
+        status: status.as_u16(),
+        code: "UNKNOWN".to_string(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct WatchErrorEnvelope {
+    meta: WatchErrorMeta,
+}
+
+#[derive(Debug, Deserialize)]
+struct WatchErrorMeta {
+    code: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -450,5 +485,16 @@ mod tests {
         assert_eq!(response.threads.len(), 3);
         assert_eq!(response.threads[1].fork, "main");
         assert_eq!(response.threads[1].comments[0].body, "aaa");
+    }
+
+    #[test]
+    fn classifies_sensitive_watch_error() {
+        let error = super::classify_watch_error(
+            reqwest::StatusCode::BAD_REQUEST,
+            r#"{"meta":{"status":400,"code":"FORBIDDEN"}}"#,
+            "https://www.nicovideo.jp/watch/sm44867689",
+        );
+
+        assert!(matches!(error, super::NicoApiError::SensitiveVideo { .. }));
     }
 }
